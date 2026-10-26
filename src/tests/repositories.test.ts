@@ -1,0 +1,541 @@
+// @vitest-environment node
+import { describe, expect, it } from "vitest";
+import {
+  createAppointment,
+  listAppointments,
+  updateAppointmentStatus,
+} from "@/repositories/appointments-repository";
+import {
+  createConsultant,
+  getConsultantById,
+  getConsultantDetail,
+  listConsultants,
+  setConsultantArchived,
+  updateConsultant,
+} from "@/repositories/consultants-repository";
+import {
+  createDeck,
+  createQuickDeck,
+  getGrimorioCardBySlug,
+  listDecks,
+  listGrimorioCards,
+  updateDeck,
+  upsertPersonalCardEntry,
+} from "@/repositories/grimorio-repository";
+import {
+  createDeckEvent,
+  createReadingDraft,
+  getDashboardSnapshot,
+  getReadingDetail,
+  listReadings,
+  updateReadingSession,
+} from "@/repositories/readings-repository";
+import {
+  authenticateUser,
+  exportWorkspaceBackup,
+  importWorkspaceBackup,
+  registerNewUser,
+} from "@/repositories/users-repository";
+import { createDatabaseInstance } from "@/server/db";
+
+describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
+  it("initializes 78 canonical tarot cards and starts with clean empty workspace", () => {
+    const db = createDatabaseInstance(":memory:", { seedDemo: false });
+    const user = registerNewUser(
+      {
+        name: "Usuario Tarot",
+        workspaceName: "Mesa Limpia",
+        email: "tarot@limpio.org",
+        password: "clave-segura-123",
+      },
+      db
+    );
+
+    const cards = listGrimorioCards(user.id, {}, db);
+    expect(cards).toHaveLength(318);
+
+    const rwsCards = cards.filter((c) => c.card.deckTradition === "rws");
+    expect(rwsCards).toHaveLength(78);
+    const rwsMajors = rwsCards.filter((c) => c.card.arcana === "major");
+    expect(rwsMajors).toHaveLength(22);
+
+    const snapshot = getDashboardSnapshot(user.id, db);
+    expect(snapshot.counts.completedReadings).toBe(0);
+    expect(snapshot.counts.draftReadings).toBe(0);
+    expect(snapshot.counts.annotatedCards).toBe(0);
+    expect(snapshot.counts.recordedPhenomena).toBe(0);
+    expect(snapshot.incompleteDecks).toHaveLength(0);
+    expect(snapshot.incompleteConsultants).toHaveLength(0);
+    expect(listConsultants(user.id, {}, db)).toHaveLength(0);
+    expect(listDecks(user.id, db)).toHaveLength(0);
+  });
+
+  it("enforces strict user isolation between private accounts and demo data", () => {
+    const db = createDatabaseInstance(":memory:", { seedDemo: true });
+    const privateUser = registerNewUser(
+      {
+        name: "Lucía Ríos",
+        workspaceName: "Consultorio del Norte",
+        email: "lucia@estudio.org",
+        password: "clave-segura-lecturas",
+      },
+      db
+    );
+
+    expect(privateUser.isDemo).toBe(false);
+    expect(listConsultants(privateUser.id, {}, db)).toHaveLength(0);
+    expect(listReadings(privateUser.id, {}, db)).toHaveLength(0);
+
+    const authenticated = authenticateUser(
+      {
+        email: "lucia@estudio.org",
+        password: "clave-segura-lecturas",
+      },
+      db
+    );
+    expect(authenticated?.id).toBe(privateUser.id);
+    expect(
+      authenticateUser(
+        { email: "lucia@estudio.org", password: "incorrecta-password" },
+        db
+      )
+    ).toBeNull();
+  });
+
+  it("supports complete workflow: consultant -> optional duration appointment -> multi-deck + quick deck -> progressive reading -> deck event -> card note sync", () => {
+    const db = createDatabaseInstance(":memory:", { seedDemo: false });
+    const user = registerNewUser(
+      {
+        name: "Mateo Soler",
+        workspaceName: "Archivo Central",
+        email: "mateo@estudio.org",
+        password: "password-fuerte-123",
+      },
+      db
+    );
+
+    const consultant = createConsultant(
+      user.id,
+      {
+        fullName: "Alias: Viajera Sur",
+        alias: "Viajera Sur",
+        email: "",
+        phone: "",
+        preferredChannel: "Presencial",
+        contextNotes: "Explora cambio de oficio artesanal.",
+        personalNotes: "Prefiere tiradas breves de tres cartas.",
+        tags: ["Oficio", "Seguimiento"],
+      },
+      db
+    );
+    expect(consultant.displayName).toBe("Viajera Sur");
+    expect(consultant.tags.map((t) => t.name)).toContain("Oficio");
+
+    const deck = createDeck(
+      user.id,
+      {
+        name: "Marsella Clásico",
+        tradition: "marseille",
+        author: "Conver",
+        cardCount: 78,
+        description: "Edición de estudio",
+        isDefault: true,
+      },
+      db
+    );
+    expect(deck.needsSetup).toBe(false);
+
+    // Appointment WITHOUT specific duration (optional duration unchecked)
+    const apptWithoutDuration = createAppointment(
+      user.id,
+      {
+        consultantId: consultant.id,
+        title: "Consulta breve sin duración fija",
+        scheduledAt: "2026-10-27T18:00:00.000Z",
+        hasSpecificDuration: false,
+        durationMinutes: null,
+        modality: "video",
+        status: "scheduled",
+        intention: "Seguimiento puntual.",
+        prepNotes: "",
+      },
+      db
+    );
+    expect(apptWithoutDuration.durationMinutes).toBeNull();
+
+    // Appointment WITH specific duration
+    const appt = createAppointment(
+      user.id,
+      {
+        consultantId: consultant.id,
+        title: "Primera sesión de otoño",
+        scheduledAt: "2026-10-28T15:00:00.000Z",
+        hasSpecificDuration: true,
+        durationMinutes: 60,
+        modality: "in_person",
+        status: "scheduled",
+        intention: "Revisar apertura de taller cerámico.",
+        prepNotes: "Usar Marsella.",
+      },
+      db
+    );
+    expect(appt.durationMinutes).toBe(60);
+    expect(listAppointments(user.id, {}, db)).toHaveLength(2);
+
+    // Create reading draft selecting existing deck + inline quick-registered deck
+    const draft = createReadingDraft(
+      user.id,
+      {
+        title: "Apertura de taller cerámico",
+        consultantId: consultant.id,
+        appointmentId: appt.id,
+        deckIds: [deck.id],
+        quickNewDecks: ["Tarot Egipcio Kier"],
+        spreadMode: "classic",
+        spreadTemplateId: "spread-triad-observation",
+        spreadName: "Pasado, Presente y Futuro (3 cartas)",
+        customPositions: [],
+        questionIntention: "¿Qué pide atención práctica este mes?",
+        sessionContext: "Mesa tranquila por la tarde.",
+        performedAt: "2026-10-28T15:05:00.000Z",
+      },
+      db
+    );
+    expect(draft.status).toBe("draft");
+    expect(draft.deckIds).toHaveLength(2);
+    expect(draft.decks.map((d) => d.name)).toEqual([
+      "Marsella Clásico",
+      "Tarot Egipcio Kier",
+    ]);
+
+    // Quick-registered deck is flagged with needsSetup = true and surfaces on Home dashboard
+    const snapshotBeforeSetup = getDashboardSnapshot(user.id, db);
+    expect(snapshotBeforeSetup.incompleteDecks).toHaveLength(1);
+    const pendingDeck = snapshotBeforeSetup.incompleteDecks[0]!;
+    expect(pendingDeck.name).toBe("Tarot Egipcio Kier");
+    expect(pendingDeck.needsSetup).toBe(true);
+
+    // Completing deck details clears needsSetup and removes the Home notification
+    const completedDeck = updateDeck(
+      user.id,
+      pendingDeck.id,
+      {
+        name: "Tarot Egipcio Kier",
+        tradition: "egipcio",
+        author: "Editorial Kier",
+        cardCount: 78,
+        description: "Edición ilustrada tradicional.",
+        isDefault: false,
+      },
+      db
+    );
+    expect(completedDeck.needsSetup).toBe(false);
+    expect(getDashboardSnapshot(user.id, db).incompleteDecks).toHaveLength(0);
+    expect(listDecks(user.id, db)).toHaveLength(2);
+
+    // Record deck event
+    const event = createDeckEvent(
+      user.id,
+      {
+        readingId: draft.id,
+        cardId: "major-01",
+        occurredPhase: "shuffling",
+        phenomenonType: "jumped",
+        customPhenomenonLabel: "",
+        linkedPositionIndex: 1,
+        observationDescription: "I El Mago saltó cara arriba sobre la mesa.",
+        personalInterpretation: "Disponibilidad inmediata de herramientas reales.",
+        occurredAt: "2026-10-28T15:07:00.000Z",
+        tags: ["Salto limpio"],
+      },
+      db
+    );
+    expect(event.card?.canonicalName).toBe("El Mago");
+
+    // Complete reading with 3-layer separation and personal card note sync
+    const completed = updateReadingSession(
+      user.id,
+      {
+        readingId: draft.id,
+        title: "Apertura de taller cerámico",
+        consultantId: consultant.id,
+        deckIds: draft.deckIds,
+        spreadTemplateId: "spread-triad-observation",
+        spreadName: "Pasado, Presente y Futuro (3 cartas)",
+        customPositions: [],
+        questionIntention: "¿Qué pide atención práctica este mes?",
+        sessionContext: "Mesa tranquila por la tarde.",
+        status: "completed",
+        performedAt: "2026-10-28T15:05:00.000Z",
+        generalObservations: "Mezcla fluida tras el salto inicial.",
+        sessionSynthesis: "Ya cuenta con los materiales esenciales para empezar.",
+        closingReflections: "Revisar avances en diciembre.",
+        tags: ["Oficio", "Inicio"],
+        cards: [
+          {
+            positionIndex: 1,
+            positionTitle: "Pasado",
+            positionPrompt: "Origen",
+            cardId: "major-01",
+            orientation: "upright",
+            observationNotes: "Integrada tras saltar en mezcla.",
+            contextualInterpretation: "Destreza manual lista para usarse.",
+            personalTakeaway:
+              "El Mago al inicio pide obrar con lo que ya hay en la mesa.",
+            syncToGrimorio: true,
+          },
+          {
+            positionIndex: 2,
+            positionTitle: "Presente",
+            positionPrompt: "Estado actual",
+            cardId: "pentacles-03",
+            orientation: "upright",
+            observationNotes: "Derecha en el centro.",
+            contextualInterpretation: "Colaboración con colegas del taller.",
+            personalTakeaway: "",
+            syncToGrimorio: false,
+          },
+        ],
+      },
+      db
+    );
+
+    expect(completed.status).toBe("completed");
+    expect(completed.cards).toHaveLength(2);
+    expect(completed.events).toHaveLength(1);
+    expect(completed.deckIds).toHaveLength(2);
+
+    // Linked appointment auto-transitioned to completed
+    const apptsAfter = listAppointments(user.id, {}, db);
+    const updatedMainAppt = apptsAfter.find((a) => a.id === appt.id);
+    expect(updatedMainAppt?.status).toBe("completed");
+
+    // Verify custom spread persistence & coordinate reordering
+    const customDraft = createReadingDraft(
+      user.id,
+      {
+        title: "Tirada libre de dos cartas",
+        consultantId: consultant.id,
+        appointmentId: "",
+        deckIds: [deck.id],
+        quickNewDecks: [],
+        spreadMode: "custom",
+        spreadTemplateId: "",
+        spreadName: "Personalizada",
+        customPositions: [
+          {
+            positionIndex: 1,
+            title: " Situación ",
+            prompt: "Lo que está en juego",
+            coordX: 28.5,
+            coordY: 45,
+          },
+          {
+            positionIndex: 2,
+            title: "Consejo",
+            prompt: "Acción sugerida",
+            coordX: 72.5,
+            coordY: 55,
+          },
+        ],
+        questionIntention: "Revisión puntual.",
+        sessionContext: "",
+        performedAt: "2026-10-29T10:00:00.000Z",
+      },
+      db
+    );
+    expect(customDraft.customPositions).toHaveLength(2);
+    expect(customDraft.customPositions[0]?.coordX).toBe(28.5);
+    expect(getReadingDetail(user.id, customDraft.id, db)?.customPositions).toHaveLength(2);
+
+    // Verify card catalog cross-relations & evolution log
+    upsertPersonalCardEntry(
+      user.id,
+      {
+        cardId: "major-01",
+        deckId: "",
+        customImageUrl: "",
+        personalMeaning: "Articulación consciente entre idea y manos.",
+        reversedMeaning: "Dispersión instrumental.",
+        symbolsAssociations: "Mesa con los cuatro palos dispuestos.",
+        keywords: ["mesa", "instrumentos"],
+        reflections: "Carta clave para artesanos.",
+        tags: ["Oficio"],
+        logEvolutionEntry: true,
+        evolutionNoteTitle: "Síntesis anual",
+      },
+      db
+    );
+
+    const magoDetail = getGrimorioCardBySlug(user.id, "01-el-mago", db);
+    expect(magoDetail?.appearances).toHaveLength(1);
+    expect(magoDetail?.phenomena).toHaveLength(1);
+    expect(magoDetail?.evolutionLog.length).toBeGreaterThanOrEqual(2);
+
+    // Verify Consultant dossier relations
+    const dossier = getConsultantDetail(user.id, consultant.id, db);
+    expect(dossier?.readings).toHaveLength(2);
+    expect(dossier?.frequentCards[0]?.card.id).toBe("major-01");
+
+    // Verify multi-dimensional search filters
+    expect(
+      listReadings(user.id, { phenomenonType: "jumped" }, db)
+    ).toHaveLength(1);
+    expect(
+      listReadings(user.id, { cardId: "pentacles-03" }, db)
+    ).toHaveLength(1);
+    expect(
+      listReadings(user.id, { query: "materiales esenciales" }, db)
+    ).toHaveLength(1);
+
+    // Archive & restore consultant, status update, and JSON backup roundtrip
+    const archived = setConsultantArchived(user.id, consultant.id, true, db);
+    expect(archived.archivedAt).not.toBeNull();
+    setConsultantArchived(user.id, consultant.id, false, db);
+    updateAppointmentStatus(user.id, appt.id, "completed", db);
+
+    const backup = exportWorkspaceBackup(user.id, db);
+    expect(backup.readings).toHaveLength(2);
+
+    const user2 = registerNewUser(
+      {
+        name: "Destino Backup",
+        workspaceName: "Restaurado",
+        email: "backup@estudio.org",
+        password: "password-fuerte-456",
+      },
+      db
+    );
+    const imported = importWorkspaceBackup(user2.id, backup, db);
+    expect(imported.importedReadings).toBe(2);
+    const restoredReadings = listReadings(user2.id, {}, db);
+    expect(restoredReadings).toHaveLength(2);
+  });
+
+  it("supports quick consultant registration during reading creation and setup reminders in dashboard", () => {
+    const db = createDatabaseInstance(":memory:", { seedDemo: false });
+    const user = registerNewUser(
+      {
+        name: "Luz Barral",
+        workspaceName: "Espacio Índigo",
+        email: "luz@indigo.org",
+        password: "clave-segura-luz",
+      },
+      db
+    );
+
+    // Initial state: 0 incomplete consultants
+    expect(getDashboardSnapshot(user.id, db).incompleteConsultants).toHaveLength(0);
+
+    // Quick-registered consultant via reading creation
+    const draft = createReadingDraft(
+      user.id,
+      {
+        title: "Lectura para nueva consultante",
+        consultantId: "__new__",
+        appointmentId: "",
+        deckIds: [],
+        quickNewDecks: [],
+        quickNewConsultant: "Valeria Morales",
+        spreadMode: "custom",
+        spreadTemplateId: "",
+        spreadName: "Estructura personalizada",
+        customPositions: [
+          {
+            positionIndex: 1,
+            title: "Carta 1",
+            prompt: "Punto de partida",
+            coordX: 50,
+            coordY: 50,
+          },
+        ],
+        questionIntention: "Orientación vocacional y creativa",
+        sessionContext: "Primera sesión espontánea",
+        performedAt: "2026-10-29T10:00:00.000Z",
+      },
+      db
+    );
+
+    expect(draft.consultantId).toBeTruthy();
+    expect(draft.consultant?.displayName).toBe("Valeria Morales");
+
+    const createdConsultant = getConsultantById(user.id, draft.consultantId!, db);
+    expect(createdConsultant?.displayName).toBe("Valeria Morales");
+    expect(createdConsultant?.needsSetup).toBe(true);
+
+    // Surfaces in Dashboard snapshot
+    const snapshotWithIncomplete = getDashboardSnapshot(user.id, db);
+    expect(snapshotWithIncomplete.incompleteConsultants).toHaveLength(1);
+    expect(snapshotWithIncomplete.incompleteConsultants[0]?.displayName).toBe("Valeria Morales");
+
+    // Completing consultant details clears needsSetup and removes the Home notification
+    const completedConsultant = updateConsultant(
+      user.id,
+      draft.consultantId!,
+      {
+        fullName: "Valeria Morales",
+        alias: "Valeria",
+        email: "valeria@taller.org",
+        phone: "+54 9 11 1234-5678",
+        preferredChannel: "Presencial",
+        contextNotes: "Arquitecta y ceramista.",
+        personalNotes: "Trajo su propio cuaderno de notas.",
+        tags: ["Arquitectura", "Diseño"],
+      },
+      db
+    );
+    expect(completedConsultant.needsSetup).toBe(false);
+    expect(getDashboardSnapshot(user.id, db).incompleteConsultants).toHaveLength(0);
+  });
+
+  it("permite registrar un consultante rápido al agendar una sesión y registrar mazos rápidos", () => {
+    const db = createDatabaseInstance(":memory:", { seedDemo: false });
+    const user = registerNewUser(
+      {
+        name: "Luz",
+        workspaceName: "Espacio Astral",
+        email: "luz@astral.local",
+        password: "password-segura-123",
+      },
+      db
+    );
+
+    // Agendar cita con registro rápido de nuevo consultante
+    const appt = createAppointment(
+      user.id,
+      {
+        consultantId: "__new__",
+        quickNewConsultant: "Ignacio Albarracín",
+        title: "Lectura de tránsito anual",
+        scheduledAt: "2026-11-15T15:00:00.000Z",
+        hasSpecificDuration: true,
+        durationMinutes: 60,
+        modality: "video",
+        status: "scheduled",
+        intention: "Proyecciones profesionales",
+        prepNotes: "Primera consulta",
+      },
+      db
+    );
+
+    expect(appt.id).toBeTruthy();
+    expect(appt.consultantDisplayName).toBe("Ignacio Albarracín");
+
+    const createdConsultant = getConsultantById(user.id, appt.consultantId, db);
+    expect(createdConsultant).not.toBeNull();
+    expect(createdConsultant?.fullName).toBe("Ignacio Albarracín");
+    expect(createdConsultant?.needsSetup).toBe(true);
+
+    const snapshot = getDashboardSnapshot(user.id, db);
+    expect(snapshot.incompleteConsultants.some((c) => c.id === appt.consultantId)).toBe(true);
+
+    // Registro de mazo rápido
+    const quickDeck = createQuickDeck(user.id, "Tarot Esotérico de Marsella", db);
+    expect(quickDeck.id).toBeTruthy();
+    expect(quickDeck.name).toBe("Tarot Esotérico de Marsella");
+    expect(quickDeck.needsSetup).toBe(true);
+
+    const snapshotWithDeck = getDashboardSnapshot(user.id, db);
+    expect(snapshotWithDeck.incompleteDecks.some((d) => d.id === quickDeck.id)).toBe(true);
+  });
+});

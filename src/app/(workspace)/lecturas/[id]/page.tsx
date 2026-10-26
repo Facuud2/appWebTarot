@@ -1,0 +1,50 @@
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+import { LiveReadingWorkbench } from "@/features/readings/live-reading-workbench";
+import { listConsultants } from "@/repositories/consultants-repository";
+import {
+  listCanonicalCards,
+  listDecks,
+  listSpreadTemplates,
+} from "@/repositories/grimorio-repository";
+import { getReadingDetail } from "@/repositories/readings-repository";
+import { listUserTags } from "@/repositories/tags-repository";
+import { requireUser } from "@/server/session";
+
+export const metadata: Metadata = {
+  title: "Mesa de lectura",
+};
+
+export default async function ReadingDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const user = await requireUser();
+  const { id } = await params;
+
+  const reading = getReadingDetail(user.id, id);
+  if (!reading) {
+    notFound();
+  }
+
+  const cardsCatalog = listCanonicalCards();
+  const consultants = listConsultants(user.id, { includeArchived: true });
+  const decks = listDecks(user.id);
+  const classicSpreads = listSpreadTemplates(user.id).filter(
+    (s) => s.isBuiltin
+  );
+  const tagSuggestions = listUserTags(user.id).map((t) => t.name);
+
+  return (
+    <LiveReadingWorkbench
+      initialReading={reading}
+      cardsCatalog={cardsCatalog}
+      consultants={consultants}
+      decks={decks}
+      spreads={classicSpreads}
+      tagSuggestions={tagSuggestions}
+      autosaveEnabled={user.preferences.autosaveReadings}
+    />
+  );
+}

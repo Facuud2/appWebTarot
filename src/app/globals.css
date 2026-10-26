@@ -1,0 +1,204 @@
+@import "tailwindcss";
+
+:root {
+  /* Capa 1: Tokens primitivos (Lino de archivo, tinta botánica y cardenillo mineral) */
+  --prim-paper-0: #ffffff;
+  --prim-linen-50: #f4f3ee;
+  --prim-linen-100: #eae8e0;
+  --prim-linen-200: #e3e1d8;
+  --prim-linen-300: #cbc8be;
+  --prim-ink-950: #1c1d1a;
+  --prim-ink-700: #3d3f39;
+  --prim-ink-600: #555751;
+  --prim-ink-500: #63655e;
+  --prim-verdigris-700: #1b6e66;
+  --prim-verdigris-800: #114b45;
+  --prim-verdigris-100: #e0f2ef;
+
+  /* Capa 2: Tokens semánticos (Modo claro editorial) */
+  --ground: var(--prim-paper-0);
+  --surface: var(--prim-linen-50);
+  --raised: var(--prim-paper-0);
+  --active: var(--prim-linen-100);
+  --border: var(--prim-linen-200);
+  --rule: #efede6;
+  --control: var(--prim-linen-300);
+
+  --text: var(--prim-ink-950);
+  --muted: var(--prim-ink-600);
+  --faint: var(--prim-ink-500);
+
+  --primary: var(--prim-ink-950);
+  --on-primary: #ffffff;
+  --accent: var(--prim-verdigris-700);
+  --accent-soft: var(--prim-verdigris-100);
+  --accent-ink: var(--prim-verdigris-800);
+
+  --positive: #1f6f46;
+  --pill-positive-bg: #dcfae5;
+  --pill-positive-ink: #063b1c;
+
+  --warning: #8a420d;
+  --pill-warning-bg: #fef3c7;
+  --pill-warning-ink: #71340a;
+
+  --negative: #b42318;
+  --pill-negative-bg: #fee4e2;
+  --pill-negative-ink: #7a1d14;
+
+  --pill-neutral-bg: #eceae2;
+  --pill-neutral-ink: #343630;
+
+  /* Capa 3: Tokens de escala y componentes */
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --radius-pill: 999px;
+  --sidebar-width: 236px;
+}
+
+.dark {
+  --ground: #0e0f0e;
+  --surface: #161816;
+  --raised: #1e211e;
+  --active: #252925;
+  --border: #292d29;
+  --rule: #1e211e;
+  --control: #434843;
+
+  --text: #f2f2ee;
+  --muted: #b4b6b0;
+  --faint: #949790;
+
+  --primary: #f2f2ee;
+  --on-primary: #0e0f0e;
+  --accent: #4ecdc0;
+  --accent-soft: #142f2c;
+  --accent-ink: #82e6db;
+
+  --positive: #43c582;
+  --pill-positive-bg: #132c1e;
+  --pill-positive-ink: #75dfa7;
+
+  --warning: #f2b45a;
+  --pill-warning-bg: #2e2210;
+  --pill-warning-ink: #f7c97e;
+
+  --negative: #ef6b63;
+  --pill-negative-bg: #301716;
+  --pill-negative-ink: #f99b95;
+
+  --pill-neutral-bg: #232623;
+  --pill-neutral-ink: #d4d6d0;
+}
+
+@theme inline {
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-active: var(--active);
+  --color-border: var(--border);
+  --color-rule: var(--rule);
+  --color-control: var(--control);
+  --color-ink: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-primary: var(--primary);
+  --color-on-primary: var(--on-primary);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+  --color-positive: var(--positive);
+  --color-warning: var(--warning);
+  --color-negative: var(--negative);
+
+  --font-sans: var(--font-instrument-sans), system-ui, -apple-system, sans-serif;
+  --font-serif: var(--font-instrument-serif), Georgia, serif;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    background-color: var(--ground);
+    color: var(--text);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    max-width: 100vw;
+    width: 100%;
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
+    touch-action: pan-y;
+  }
+
+  body {
+    background-color: var(--ground);
+    color: var(--text);
+    min-height: 100dvh;
+    max-width: 100vw;
+    width: 100%;
+    overflow-x: hidden;
+    overscroll-behavior-x: none;
+    touch-action: pan-y;
+  }
+
+  .overflow-x-auto {
+    touch-action: pan-x pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  summary {
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+.num-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.pill-positive {
+  background-color: var(--pill-positive-bg);
+  color: var(--pill-positive-ink);
+}
+
+.pill-warning {
+  background-color: var(--pill-warning-bg);
+  color: var(--pill-warning-ink);
+}
+
+.pill-negative {
+  background-color: var(--pill-negative-bg);
+  color: var(--pill-negative-ink);
+}
+
+.pill-neutral {
+  background-color: var(--pill-neutral-bg);
+  color: var(--pill-neutral-ink);
+}
+
+.pill-phenomenon {
+  background-color: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
