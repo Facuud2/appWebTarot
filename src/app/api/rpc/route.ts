@@ -54,6 +54,7 @@ import {
   createUserSession,
   destroyCurrentSession,
   getCurrentUser,
+  SESSION_COOKIE_NAME,
 } from "@/server/session";
 import type { ActionResult } from "@/types/domain";
 
@@ -64,6 +65,18 @@ const rpcEnvelopeSchema = z.object({
 
 function jsonResult<T>(body: ActionResult<T>, status = 200): NextResponse {
   return NextResponse.json(body, { status });
+}
+
+function safeRevalidatePath(path: string, type?: "layout" | "page") {
+  try {
+    if (type) {
+      revalidatePath(path, type);
+    } else {
+      revalidatePath(path);
+    }
+  } catch {
+    // Si se invoca fuera de un request context con static generation store, omitir de forma segura
+  }
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
@@ -104,13 +117,15 @@ export async function POST(request: Request): Promise<NextResponse> {
           error: "Correo o contraseña incorrectos.",
         });
       }
-      await createUserSession(user.id);
-      revalidatePath("/", "layout");
-      return jsonResult({
+      const session = await createUserSession(user.id, request);
+      safeRevalidatePath("/", "layout");
+      const res = jsonResult({
         ok: true,
         data: user,
         message: `Sesión iniciada en ${user.workspaceName}.`,
       });
+      res.cookies.set(SESSION_COOKIE_NAME, session.signedToken, session.cookieOptions);
+      return res;
     }
 
     if (op === "auth.register") {
@@ -122,38 +137,44 @@ export async function POST(request: Request): Promise<NextResponse> {
         });
       }
       const user = registerNewUser(parsed.data);
-      await createUserSession(user.id);
-      revalidatePath("/", "layout");
-      return jsonResult({
+      const session = await createUserSession(user.id, request);
+      safeRevalidatePath("/", "layout");
+      const res = jsonResult({
         ok: true,
         data: user,
         message: "Tu espacio de trabajo fue creado correctamente.",
       });
+      res.cookies.set(SESSION_COOKIE_NAME, session.signedToken, session.cookieOptions);
+      return res;
     }
 
     if (op === "auth.demo") {
       const demoUser = getDemoUser();
-      await createUserSession(demoUser.id);
-      revalidatePath("/", "layout");
-      return jsonResult({
+      const session = await createUserSession(demoUser.id, request);
+      safeRevalidatePath("/", "layout");
+      const res = jsonResult({
         ok: true,
         data: demoUser,
         message: "Ingresaste al espacio de demostración con datos de ejemplo.",
       });
+      res.cookies.set(SESSION_COOKIE_NAME, session.signedToken, session.cookieOptions);
+      return res;
     }
 
     if (op === "auth.logout") {
-      await destroyCurrentSession();
-      revalidatePath("/", "layout");
-      return jsonResult({
+      await destroyCurrentSession(request);
+      safeRevalidatePath("/", "layout");
+      const res = jsonResult({
         ok: true,
         data: null,
         message: "Sesión cerrada correctamente.",
       });
+      res.cookies.delete(SESSION_COOKIE_NAME);
+      return res;
     }
 
     // Authenticated operations
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(request);
     if (!user) {
       return jsonResult(
         {
@@ -174,10 +195,10 @@ export async function POST(request: Request): Promise<NextResponse> {
           });
         }
         const created = createConsultant(user.id, parsed.data);
-        revalidatePath("/");
-        revalidatePath("/consultantes");
-        revalidatePath("/agenda");
-        revalidatePath("/lecturas/nueva");
+        safeRevalidatePath("/");
+        safeRevalidatePath("/consultantes");
+        safeRevalidatePath("/agenda");
+        safeRevalidatePath("/lecturas/nueva");
         return jsonResult({
           ok: true,
           data: created,
@@ -200,10 +221,10 @@ export async function POST(request: Request): Promise<NextResponse> {
           body.data.consultantId,
           body.data.input
         );
-        revalidatePath("/");
-        revalidatePath("/consultantes");
-        revalidatePath(`/consultantes/${body.data.consultantId}`);
-        revalidatePath("/lecturas");
+        safeRevalidatePath("/");
+        safeRevalidatePath("/consultantes");
+        safeRevalidatePath(`/consultantes/${body.data.consultantId}`);
+        safeRevalidatePath("/lecturas");
         return jsonResult({
           ok: true,
           data: updated,
@@ -223,9 +244,9 @@ export async function POST(request: Request): Promise<NextResponse> {
           body.data.consultantId,
           body.data.archived
         );
-        revalidatePath("/");
-        revalidatePath("/consultantes");
-        revalidatePath(`/consultantes/${body.data.consultantId}`);
+        safeRevalidatePath("/");
+        safeRevalidatePath("/consultantes");
+        safeRevalidatePath(`/consultantes/${body.data.consultantId}`);
         return jsonResult({
           ok: true,
           data: updated,
@@ -243,10 +264,10 @@ export async function POST(request: Request): Promise<NextResponse> {
           return jsonResult({ ok: false, error: "Consultante no válido." });
         }
         deleteConsultant(user.id, body.data.consultantId);
-        revalidatePath("/");
-        revalidatePath("/consultantes");
-        revalidatePath("/agenda");
-        revalidatePath("/lecturas");
+        safeRevalidatePath("/");
+        safeRevalidatePath("/consultantes");
+        safeRevalidatePath("/agenda");
+        safeRevalidatePath("/lecturas");
         return jsonResult({
           ok: true,
           data: null,
@@ -265,9 +286,9 @@ export async function POST(request: Request): Promise<NextResponse> {
           });
         }
         const created = createAppointment(user.id, parsed.data);
-        revalidatePath("/");
-        revalidatePath("/agenda");
-        revalidatePath(`/consultantes/${created.consultantId}`);
+        safeRevalidatePath("/");
+        safeRevalidatePath("/agenda");
+        safeRevalidatePath(`/consultantes/${created.consultantId}`);
         return jsonResult({
           ok: true,
           data: created,
@@ -294,9 +315,9 @@ export async function POST(request: Request): Promise<NextResponse> {
           body.data.appointmentId,
           body.data.input
         );
-        revalidatePath("/");
-        revalidatePath("/agenda");
-        revalidatePath(`/consultantes/${updated.consultantId}`);
+        safeRevalidatePath("/");
+        safeRevalidatePath("/agenda");
+        safeRevalidatePath(`/consultantes/${updated.consultantId}`);
         return jsonResult({
           ok: true,
           data: updated,
@@ -319,9 +340,9 @@ export async function POST(request: Request): Promise<NextResponse> {
           body.data.appointmentId,
           body.data.status
         );
-        revalidatePath("/");
-        revalidatePath("/agenda");
-        revalidatePath(`/consultantes/${updated.consultantId}`);
+        safeRevalidatePath("/");
+        safeRevalidatePath("/agenda");
+        safeRevalidatePath(`/consultantes/${updated.consultantId}`);
         return jsonResult({
           ok: true,
           data: updated,
@@ -337,9 +358,9 @@ export async function POST(request: Request): Promise<NextResponse> {
           return jsonResult({ ok: false, error: "Cita no válida." });
         }
         deleteAppointment(user.id, body.data.appointmentId);
-        revalidatePath("/");
-        revalidatePath("/agenda");
-        revalidatePath("/consultantes");
+        safeRevalidatePath("/");
+        safeRevalidatePath("/agenda");
+        safeRevalidatePath("/consultantes");
         return jsonResult({
           ok: true,
           data: null,
@@ -358,12 +379,12 @@ export async function POST(request: Request): Promise<NextResponse> {
           });
         }
         const created = createReadingDraft(user.id, parsed.data);
-        revalidatePath("/");
-        revalidatePath("/lecturas");
-        revalidatePath("/grimorio");
-        revalidatePath("/agenda");
+        safeRevalidatePath("/");
+        safeRevalidatePath("/lecturas");
+        safeRevalidatePath("/grimorio");
+        safeRevalidatePath("/agenda");
         if (created.consultantId) {
-          revalidatePath(`/consultantes/${created.consultantId}`);
+          safeRevalidatePath(`/consultantes/${created.consultantId}`);
         }
         return jsonResult({
           ok: true,
@@ -383,12 +404,12 @@ export async function POST(request: Request): Promise<NextResponse> {
           });
         }
         const updated = updateReadingSession(user.id, parsed.data);
-        revalidatePath("/");
-        revalidatePath("/lecturas");
-        revalidatePath(`/lecturas/${updated.id}`);
-        revalidatePath("/grimorio");
+        safeRevalidatePath("/");
+        safeRevalidatePath("/lecturas");
+        safeRevalidatePath(`/lecturas/${updated.id}`);
+        safeRevalidatePath("/grimorio");
         if (updated.consultantId) {
-          revalidatePath(`/consultantes/${updated.consultantId}`);
+          safeRevalidatePath(`/consultantes/${updated.consultantId}`);
         }
         return jsonResult({
           ok: true,
@@ -406,10 +427,10 @@ export async function POST(request: Request): Promise<NextResponse> {
           return jsonResult({ ok: false, error: "Lectura no válida." });
         }
         deleteReading(user.id, body.data.readingId);
-        revalidatePath("/");
-        revalidatePath("/lecturas");
-        revalidatePath("/fenomenos");
-        revalidatePath("/grimorio");
+        safeRevalidatePath("/");
+        safeRevalidatePath("/lecturas");
+        safeRevalidatePath("/fenomenos");
+        safeRevalidatePath("/grimorio");
         return jsonResult({
           ok: true,
           data: null,
@@ -428,10 +449,10 @@ export async function POST(request: Request): Promise<NextResponse> {
           });
         }
         const event = createDeckEvent(user.id, parsed.data);
-        revalidatePath("/");
-        revalidatePath(`/lecturas/${parsed.data.readingId}`);
-        revalidatePath("/fenomenos");
-        revalidatePath("/grimorio");
+        safeRevalidatePath("/");
+        safeRevalidatePath(`/lecturas/${parsed.data.readingId}`);
+        safeRevalidatePath("/fenomenos");
+        safeRevalidatePath("/grimorio");
         return jsonResult({
           ok: true,
           data: event,
@@ -450,9 +471,9 @@ export async function POST(request: Request): Promise<NextResponse> {
           return jsonResult({ ok: false, error: "Evento no válido." });
         }
         deleteDeckEvent(user.id, body.data.eventId);
-        revalidatePath(`/lecturas/${body.data.readingId}`);
-        revalidatePath("/fenomenos");
-        revalidatePath("/grimorio");
+        safeRevalidatePath(`/lecturas/${body.data.readingId}`);
+        safeRevalidatePath("/fenomenos");
+        safeRevalidatePath("/grimorio");
         return jsonResult({
           ok: true,
           data: null,
@@ -476,9 +497,9 @@ export async function POST(request: Request): Promise<NextResponse> {
           });
         }
         const saved = upsertPersonalCardEntry(user.id, body.data.input);
-        revalidatePath("/");
-        revalidatePath("/grimorio");
-        revalidatePath(`/grimorio/${body.data.slug}`);
+        safeRevalidatePath("/");
+        safeRevalidatePath("/grimorio");
+        safeRevalidatePath(`/grimorio/${body.data.slug}`);
         return jsonResult({
           ok: true,
           data: saved,
@@ -495,10 +516,10 @@ export async function POST(request: Request): Promise<NextResponse> {
           });
         }
         const created = createDeck(user.id, parsed.data);
-        revalidatePath("/");
-        revalidatePath("/grimorio");
-        revalidatePath("/ajustes");
-        revalidatePath("/lecturas/nueva");
+        safeRevalidatePath("/");
+        safeRevalidatePath("/grimorio");
+        safeRevalidatePath("/ajustes");
+        safeRevalidatePath("/lecturas/nueva");
         return jsonResult({
           ok: true,
           data: created,
@@ -524,11 +545,11 @@ export async function POST(request: Request): Promise<NextResponse> {
           });
         }
         const created = createQuickDeck(user.id, body.data.name);
-        revalidatePath("/");
-        revalidatePath("/grimorio");
-        revalidatePath("/ajustes");
-        revalidatePath("/lecturas");
-        revalidatePath("/lecturas/nueva");
+        safeRevalidatePath("/");
+        safeRevalidatePath("/grimorio");
+        safeRevalidatePath("/ajustes");
+        safeRevalidatePath("/lecturas");
+        safeRevalidatePath("/lecturas/nueva");
         return jsonResult({
           ok: true,
           data: created,
@@ -550,10 +571,10 @@ export async function POST(request: Request): Promise<NextResponse> {
           });
         }
         const updated = updateDeck(user.id, body.data.deckId, body.data.input);
-        revalidatePath("/");
-        revalidatePath("/grimorio");
-        revalidatePath("/ajustes");
-        revalidatePath("/lecturas/nueva");
+        safeRevalidatePath("/");
+        safeRevalidatePath("/grimorio");
+        safeRevalidatePath("/ajustes");
+        safeRevalidatePath("/lecturas/nueva");
         return jsonResult({
           ok: true,
           data: updated,
@@ -567,9 +588,9 @@ export async function POST(request: Request): Promise<NextResponse> {
           return jsonResult({ ok: false, error: "Mazo no válido." });
         }
         deleteDeck(user.id, body.data.deckId);
-        revalidatePath("/");
-        revalidatePath("/grimorio");
-        revalidatePath("/ajustes");
+        safeRevalidatePath("/");
+        safeRevalidatePath("/grimorio");
+        safeRevalidatePath("/ajustes");
         return jsonResult({
           ok: true,
           data: null,
@@ -588,9 +609,9 @@ export async function POST(request: Request): Promise<NextResponse> {
           });
         }
         const created = createSpreadTemplate(user.id, parsed.data);
-        revalidatePath("/grimorio");
-        revalidatePath("/ajustes");
-        revalidatePath("/lecturas/nueva");
+        safeRevalidatePath("/grimorio");
+        safeRevalidatePath("/ajustes");
+        safeRevalidatePath("/lecturas/nueva");
         return jsonResult({
           ok: true,
           data: created,
@@ -604,8 +625,8 @@ export async function POST(request: Request): Promise<NextResponse> {
           return jsonResult({ ok: false, error: "Estructura no válida." });
         }
         deleteSpreadTemplate(user.id, body.data.spreadId);
-        revalidatePath("/grimorio");
-        revalidatePath("/ajustes");
+        safeRevalidatePath("/grimorio");
+        safeRevalidatePath("/ajustes");
         return jsonResult({
           ok: true,
           data: null,
@@ -624,8 +645,8 @@ export async function POST(request: Request): Promise<NextResponse> {
           });
         }
         const updated = updateUserWorkspaceProfile(user.id, parsed.data);
-        revalidatePath("/", "layout");
-        revalidatePath("/ajustes");
+        safeRevalidatePath("/", "layout");
+        safeRevalidatePath("/ajustes");
         return jsonResult({
           ok: true,
           data: updated,
@@ -653,7 +674,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           });
         }
         const result = importWorkspaceBackup(user.id, decoded);
-        revalidatePath("/", "layout");
+        safeRevalidatePath("/", "layout");
         return jsonResult({
           ok: true,
           data: result,

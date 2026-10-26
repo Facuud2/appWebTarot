@@ -64,7 +64,53 @@ export function mapUserRow(row: UserRow): User {
   };
 }
 
-export async function createUserSession(userId: string): Promise<void> {
+export interface SessionCreationResult {
+  signedToken: string;
+  expiresAt: Date;
+  cookieOptions: {
+    httpOnly: boolean;
+    sameSite: "lax";
+    secure: boolean;
+    path: string;
+    expires: Date;
+  };
+}
+
+export function extractSessionTokenFromCookieHeader(
+  cookieHeader: string | null | undefined
+): string | null {
+  if (!cookieHeader) return null;
+  const match = cookieHeader.match(
+    new RegExp(`(?:^|;\\s*)${SESSION_COOKIE_NAME}=([^;]+)`)
+  );
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+export function getUserFromToken(signed: string): User | null {
+  const raw = verifySignedSessionToken(signed);
+  if (!raw) return null;
+
+  const db = getDb();
+  const tokenHash = hashSessionToken(raw);
+  const nowIso = new Date().toISOString();
+
+  const row = db
+    .prepare(
+      `SELECT u.id, u.email, u.name, u.workspace_name, u.is_demo, u.preferences_json, u.created_at
+       FROM sessions s
+       JOIN users u ON u.id = s.user_id
+       WHERE s.token_hash = ? AND s.expires_at > ?`
+    )
+    .get(tokenHash, nowIso) as UserRow | undefined;
+
+  if (!row) return null;
+  return mapUserRow(row);
+}
+
+export async function createUserSession(
+  userId: string,
+  request?: Request
+): Promise<SessionCreationResult> {
   const db = getDb();
   const signedToken = createRawSessionToken();
   const rawToken = verifySignedSessionToken(signedToken);
@@ -89,24 +135,59 @@ export async function createUserSession(userId: string): Promise<void> {
     now.toISOString()
   );
 
-  const hdrs = await headers();
-  const forwardedProto = hdrs.get("x-forwarded-proto");
-  const isHttps =
-    forwardedProto === "https" || process.env.FORCE_SECURE_COOKIE === "true";
+  let isHttps = false;
+  if (request) {
+    const forwardedProto = request.headers.get("x-forwarded-proto");
+    isHttps =
+      forwardedProto === "https" ||
+      request.url.startsWith("https:") ||
+      process.env.FORCE_SECURE_COOKIE === "true";
+  } else {
+    try {
+      const hdrs = await headers();
+      const forwardedProto = hdrs.get("x-forwarded-proto");
+      isHttps =
+        forwardedProto === "https" ||
+        process.env.FORCE_SECURE_COOKIE === "true";
+    } catch {
+      isHttps = process.env.NODE_ENV === "production";
+    }
+  }
 
-  const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE_NAME, signedToken, {
+  const cookieOptions = {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: "lax" as const,
     secure: isHttps,
     path: "/",
     expires: expiresAt,
-  });
+  };
+
+  try {
+    const cookieStore = await cookies();
+    cookieStore.set(SESSION_COOKIE_NAME, signedToken, cookieOptions);
+  } catch {
+    // Si cookies() no está disponible fuera del ciclo de SSR/Server Action, se gestiona vía response.cookies
+  }
+
+  return { signedToken, expiresAt, cookieOptions };
 }
 
-export async function destroyCurrentSession(): Promise<void> {
-  const cookieStore = await cookies();
-  const signed = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+export async function destroyCurrentSession(request?: Request): Promise<void> {
+  let signed: string | null | undefined;
+  if (request) {
+    signed = extractSessionTokenFromCookieHeader(request.headers.get("cookie"));
+  }
+
+  try {
+    const cookieStore = await cookies();
+    if (!signed) {
+      signed = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    }
+    cookieStore.delete(SESSION_COOKIE_NAME);
+  } catch {
+    // Si cookies() no está disponible fuera de ciclo, se limpia en response.cookies
+  }
+
   if (signed) {
     const raw = verifySignedSessionToken(signed);
     if (raw) {
@@ -116,36 +197,35 @@ export async function destroyCurrentSession(): Promise<void> {
       );
     }
   }
-  cookieStore.delete(SESSION_COOKIE_NAME);
 }
 
-export async function getCurrentUser(): Promise<User | null> {
-  const cookieStore = await cookies();
-  const signed = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  if (!signed) return null;
+export async function getCurrentUser(request?: Request): Promise<User | null> {
+  // 1. Intentar desde el header Cookie de la petición HTTP (ideal para Route Handlers)
+  if (request) {
+    const cookieHeader = request.headers.get("cookie");
+    const token = extractSessionTokenFromCookieHeader(cookieHeader);
+    if (token) {
+      const user = getUserFromToken(token);
+      if (user) return user;
+    }
+  }
 
-  const raw = verifySignedSessionToken(signed);
-  if (!raw) return null;
+  // 2. Intentar desde next/headers cookies() (Server Components y Server Actions)
+  try {
+    const cookieStore = await cookies();
+    const signed = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+    if (signed) {
+      return getUserFromToken(signed);
+    }
+  } catch {
+    // Ignorar si no está dentro del request scope de Server Components
+  }
 
-  const db = getDb();
-  const tokenHash = hashSessionToken(raw);
-  const nowIso = new Date().toISOString();
-
-  const row = db
-    .prepare(
-      `SELECT u.id, u.email, u.name, u.workspace_name, u.is_demo, u.preferences_json, u.created_at
-       FROM sessions s
-       JOIN users u ON u.id = s.user_id
-       WHERE s.token_hash = ? AND s.expires_at > ?`
-    )
-    .get(tokenHash, nowIso) as UserRow | undefined;
-
-  if (!row) return null;
-  return mapUserRow(row);
+  return null;
 }
 
-export async function requireUser(): Promise<User> {
-  const user = await getCurrentUser();
+export async function requireUser(request?: Request): Promise<User> {
+  const user = await getCurrentUser(request);
   if (!user) {
     redirect("/acceso");
   }

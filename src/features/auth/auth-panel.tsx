@@ -54,7 +54,7 @@ export function AuthPanel() {
       return;
     }
     toast.success(res.message ?? "Bienvenido de nuevo.");
-    router.push("/");
+    router.replace("/");
     router.refresh();
   };
 
@@ -65,7 +65,7 @@ export function AuthPanel() {
       return;
     }
     toast.success(res.message ?? "Espacio privado creado.");
-    router.push("/");
+    router.replace("/");
     router.refresh();
   };
 
@@ -78,7 +78,7 @@ export function AuthPanel() {
       return;
     }
     toast.success(res.message ?? "Espacio de demostración abierto.");
-    router.push("/");
+    router.replace("/");
     router.refresh();
   };
 

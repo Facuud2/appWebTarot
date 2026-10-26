@@ -429,7 +429,7 @@ export function SettingsClient({ user, decks, spreads }: SettingsClientProps) {
               const res = await logoutAction();
               if (res.ok) {
                 toast.success("Sesión cerrada.");
-                router.push("/acceso");
+                router.replace("/acceso");
                 router.refresh();
               } else {
                 toast.error(res.error);
