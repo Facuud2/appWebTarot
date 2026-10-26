@@ -4,15 +4,28 @@ import { randomUUID } from "node:crypto";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import {
-  createRawSessionToken,
+  createSignedPayloadToken,
   hashSessionToken,
+  verifySignedPayloadToken,
   verifySignedSessionToken,
 } from "@/server/crypto-auth";
 import { getDb } from "@/server/db";
+import { BUILTIN_DECKS } from "@/lib/tarot-catalog";
 import type { User, UserPreferences } from "@/types/domain";
 
 export const SESSION_COOKIE_NAME = "grimorio_session";
 const SESSION_DURATION_DAYS = 30;
+
+export interface SessionPayload {
+  userId: string;
+  email: string;
+  name: string;
+  workspaceName: string;
+  isDemo: boolean;
+  preferences: UserPreferences;
+  createdAt: string;
+  exp: number;
+}
 
 interface UserRow {
   id: string;
@@ -73,6 +86,7 @@ export interface SessionCreationResult {
     secure: boolean;
     path: string;
     expires: Date;
+    maxAge: number;
   };
 }
 
@@ -87,53 +101,158 @@ export function extractSessionTokenFromCookieHeader(
 }
 
 export function getUserFromToken(signed: string): User | null {
+  // 1. Verificar token autocontenido con payload HMAC (resistente entre lambdas efímeras de Vercel)
+  const payload = verifySignedPayloadToken<SessionPayload>(signed);
+  if (payload && payload.userId) {
+    if (typeof payload.exp === "number" && payload.exp < Date.now()) {
+      return null;
+    }
+
+    const user: User = {
+      id: payload.userId,
+      email: payload.email,
+      name: payload.name,
+      workspaceName: payload.workspaceName,
+      isDemo: Boolean(payload.isDemo),
+      preferences: payload.preferences || {
+        defaultDeckId: null,
+        defaultSpreadId: null,
+        compactTables: false,
+        autosaveReadings: true,
+      },
+      createdAt: payload.createdAt || new Date().toISOString(),
+    };
+
+    // Asegurar que el usuario exista en la instancia SQLite local de esta lambda para integridad relacional
+    try {
+      const db = getDb();
+      db.prepare(`
+        INSERT INTO users (id, email, name, workspace_name, password_hash, is_demo, preferences_json, created_at)
+        VALUES (?, ?, ?, ?, '', ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          workspace_name = excluded.workspace_name,
+          preferences_json = excluded.preferences_json
+      `).run(
+        user.id,
+        user.email,
+        user.name,
+        user.workspaceName,
+        user.isDemo ? 1 : 0,
+        JSON.stringify(user.preferences),
+        user.createdAt
+      );
+
+      // Si no tiene mazos registrados en esta instancia, asegurar mazos base
+      const checkDeck = db.prepare("SELECT id FROM decks WHERE user_id = ? LIMIT 1");
+      if (!checkDeck.get(user.id)) {
+        for (const deck of BUILTIN_DECKS) {
+          db.prepare(`
+            INSERT OR IGNORE INTO decks (
+              id, user_id, name, tradition, author, card_count, description, is_default, needs_setup, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+          `).run(
+            `${deck.id}-${user.id}`,
+            user.id,
+            deck.name,
+            deck.tradition,
+            deck.author,
+            deck.cardCount,
+            deck.description,
+            deck.isDefault ? 1 : 0,
+            user.createdAt
+          );
+        }
+      }
+    } catch {
+      // Ignorar fallos de sincronización si la BD local está restringida
+    }
+
+    return user;
+  }
+
+  // 2. Fallback de compatibilidad hacia atrás: token raw consultado en tabla sessions
   const raw = verifySignedSessionToken(signed);
-  if (!raw) return null;
+  if (raw) {
+    try {
+      const db = getDb();
+      const tokenHash = hashSessionToken(raw);
+      const nowIso = new Date().toISOString();
 
-  const db = getDb();
-  const tokenHash = hashSessionToken(raw);
-  const nowIso = new Date().toISOString();
+      const row = db
+        .prepare(
+          `SELECT u.id, u.email, u.name, u.workspace_name, u.is_demo, u.preferences_json, u.created_at
+           FROM sessions s
+           JOIN users u ON u.id = s.user_id
+           WHERE s.token_hash = ? AND s.expires_at > ?`
+        )
+        .get(tokenHash, nowIso) as UserRow | undefined;
 
-  const row = db
-    .prepare(
-      `SELECT u.id, u.email, u.name, u.workspace_name, u.is_demo, u.preferences_json, u.created_at
-       FROM sessions s
-       JOIN users u ON u.id = s.user_id
-       WHERE s.token_hash = ? AND s.expires_at > ?`
-    )
-    .get(tokenHash, nowIso) as UserRow | undefined;
+      if (row) return mapUserRow(row);
+    } catch {
+      // ignore
+    }
+  }
 
-  if (!row) return null;
-  return mapUserRow(row);
+  return null;
 }
 
 export async function createUserSession(
-  userId: string,
+  userOrId: User | string,
   request?: Request
 ): Promise<SessionCreationResult> {
   const db = getDb();
-  const signedToken = createRawSessionToken();
-  const rawToken = verifySignedSessionToken(signedToken);
-  if (!rawToken) {
-    throw new Error("No fue posible generar la sesión segura.");
+  let user: User;
+
+  if (typeof userOrId === "string") {
+    const row = db
+      .prepare(
+        `SELECT id, email, name, workspace_name, is_demo, preferences_json, created_at
+         FROM users WHERE id = ?`
+      )
+      .get(userOrId) as UserRow | undefined;
+    if (!row) {
+      throw new Error("No se encontró el usuario para crear la sesión.");
+    }
+    user = mapUserRow(row);
+  } else {
+    user = userOrId;
   }
 
-  const tokenHash = hashSessionToken(rawToken);
   const now = new Date();
   const expiresAt = new Date(
     now.getTime() + SESSION_DURATION_DAYS * 24 * 60 * 60 * 1000
   );
 
-  db.prepare(
-    `INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(
-    randomUUID(),
-    userId,
-    tokenHash,
-    expiresAt.toISOString(),
-    now.toISOString()
-  );
+  const payload: SessionPayload = {
+    userId: user.id,
+    email: user.email,
+    name: user.name,
+    workspaceName: user.workspaceName,
+    isDemo: user.isDemo,
+    preferences: user.preferences,
+    createdAt: user.createdAt,
+    exp: expiresAt.getTime(),
+  };
+
+  const signedToken = createSignedPayloadToken<SessionPayload>(payload);
+
+  // Registro auxiliar opcional en tabla sessions si está disponible
+  try {
+    const tokenHash = hashSessionToken(user.id + ":" + now.getTime());
+    db.prepare(
+      `INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(
+      randomUUID(),
+      user.id,
+      tokenHash,
+      expiresAt.toISOString(),
+      now.toISOString()
+    );
+  } catch {
+    // Non-fatal en serverless efímero
+  }
 
   let isHttps = false;
   if (request) {
@@ -160,6 +279,7 @@ export async function createUserSession(
     secure: isHttps,
     path: "/",
     expires: expiresAt,
+    maxAge: SESSION_DURATION_DAYS * 24 * 60 * 60,
   };
 
   try {

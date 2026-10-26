@@ -117,7 +117,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           error: "Correo o contraseña incorrectos.",
         });
       }
-      const session = await createUserSession(user.id, request);
+      const session = await createUserSession(user, request);
       safeRevalidatePath("/", "layout");
       const res = jsonResult({
         ok: true,
@@ -137,7 +137,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         });
       }
       const user = registerNewUser(parsed.data);
-      const session = await createUserSession(user.id, request);
+      const session = await createUserSession(user, request);
       safeRevalidatePath("/", "layout");
       const res = jsonResult({
         ok: true,
@@ -150,7 +150,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     if (op === "auth.demo") {
       const demoUser = getDemoUser();
-      const session = await createUserSession(demoUser.id, request);
+      const session = await createUserSession(demoUser, request);
       safeRevalidatePath("/", "layout");
       const res = jsonResult({
         ok: true,

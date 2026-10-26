@@ -59,8 +59,46 @@ describe("auth flow test", () => {
 
     const loginRes = await POST(loginReq);
     expect(loginRes.status).toBe(200);
-    expect(loginRes.headers.get("set-cookie")).toContain("grimorio_session=");
+    const setCookie = loginRes.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("grimorio_session=");
     const loginData = (await loginRes.json()) as { ok: boolean };
     expect(loginData.ok).toBe(true);
+
+    // Extract token from Set-Cookie and verify getUserFromToken
+    const tokenMatch = setCookie.match(/grimorio_session=([^;]+)/);
+    expect(tokenMatch).not.toBeNull();
+    const token = decodeURIComponent(tokenMatch![1]);
+
+    const { getUserFromToken } = await import("@/server/session");
+    const restoredUser = getUserFromToken(token);
+    expect(restoredUser).not.toBeNull();
+    expect(restoredUser?.email).toBe(email);
+    expect(restoredUser?.name).toBe("Valeria Tarot");
+
+    // Test that an authenticated RPC call succeeds with this cookie
+    const authReq = new Request("http://localhost:3000/api/rpc", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: `grimorio_session=${token}`,
+      },
+      body: JSON.stringify({
+        op: "consultant.create",
+        payload: {
+          fullName: "Lucía Consultant",
+          alias: "Lu",
+          email: "lucia@test.com",
+          phone: "",
+          preferredChannel: "",
+          contextNotes: "",
+          personalNotes: "",
+          tags: [],
+        },
+      }),
+    });
+    const authRes = await POST(authReq);
+    expect(authRes.status).toBe(200);
+    const authData = (await authRes.json()) as { ok: boolean };
+    expect(authData.ok).toBe(true);
   });
 });
