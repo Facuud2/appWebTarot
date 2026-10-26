@@ -41,7 +41,7 @@ export function AuthPanel() {
     mode: "onBlur",
     defaultValues: {
       name: "",
-      workspaceName: "Mi Espacio de Trabajo",
+      workspaceName: "",
       email: "",
       password: "",
     },
@@ -236,12 +236,17 @@ export function AuthPanel() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <Label htmlFor="reg-workspace" requiredIndicator>
-                    Nombre del espacio
-                  </Label>
+                  <div className="flex items-center justify-between gap-2">
+                    <Label htmlFor="reg-workspace">
+                      Nombre del consultorio / espacio
+                    </Label>
+                    <span className="text-xs text-muted font-normal">
+                      Opcional
+                    </span>
+                  </div>
                   <Input
                     id="reg-workspace"
-                    placeholder="Ej. Consultorio Norte"
+                    placeholder="Ej. Consultorio Norte (opcional)"
                     aria-invalid={Boolean(
                       registerForm.formState.errors.workspaceName
                     )}

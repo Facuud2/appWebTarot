@@ -217,9 +217,9 @@ export function ReadingsArchiveClient({
                     });
                   }}
                   className={cn(
-                    "shrink-0 rounded-md px-2.5 sm:px-3 text-xs font-medium transition-colors",
+                    "shrink-0 rounded-md px-2.5 sm:px-3 text-xs font-medium transition-all duration-150 active:scale-95",
                     status === opt.id
-                      ? "bg-surface text-ink border border-border"
+                      ? "bg-surface text-ink border border-border shadow-xs"
                       : "text-muted hover:text-ink"
                   )}
                 >
@@ -511,7 +511,7 @@ export function ReadingsArchiveClient({
                 <article
                   key={reading.id}
                   className={cn(
-                    "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between transition-colors hover:bg-surface/60",
+                    "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between transition-all duration-150 hover:bg-surface/60",
                     compactTables ? "p-3.5 sm:px-5" : "p-4 sm:p-5"
                   )}
                 >

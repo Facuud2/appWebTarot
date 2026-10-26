@@ -64,7 +64,7 @@ export function TarotCardPlate({
     return (
       <div
         className={cn(
-          "flex h-16 w-11 shrink-0 flex-col items-center justify-between rounded-md border border-border bg-surface p-1.5 text-center select-none",
+          "flex h-16 w-11 shrink-0 flex-col items-center justify-between rounded-md border border-border bg-surface p-1.5 text-center select-none transition-all duration-200 hover:scale-105",
           isReversed && "border-dashed",
           className
         )}
@@ -74,7 +74,7 @@ export function TarotCardPlate({
         </span>
         <div
           className={cn(
-            "text-accent transition-transform",
+            "text-accent transition-transform duration-300 ease-out",
             isReversed && "rotate-180"
           )}
         >
@@ -87,7 +87,7 @@ export function TarotCardPlate({
   return (
     <div
       className={cn(
-        "relative flex flex-col justify-between overflow-hidden rounded-xl border border-border bg-surface select-none",
+        "t-tarot-plate relative flex flex-col justify-between overflow-hidden rounded-xl border border-border bg-surface select-none shadow-xs transition-all duration-300",
         size === "md" ? "aspect-[2/3] w-32 p-3" : "aspect-[2/3] w-48 p-4",
         className
       )}
@@ -98,14 +98,14 @@ export function TarotCardPlate({
           src={customImageUrl}
           alt={`Lámina de ${card.canonicalName}${isReversed ? " (invertida)" : ""}`}
           className={cn(
-            "absolute inset-0 h-full w-full object-cover",
+            "absolute inset-0 h-full w-full object-cover transition-transform duration-300 ease-out",
             isReversed && "rotate-180"
           )}
         />
       ) : (
         <div
           className={cn(
-            "flex h-full flex-col justify-between rounded-lg border border-border/80 bg-ground p-3",
+            "flex h-full flex-col justify-between rounded-lg border border-border/80 bg-ground p-3 transition-transform duration-300 ease-out",
             isReversed && "rotate-180"
           )}
         >

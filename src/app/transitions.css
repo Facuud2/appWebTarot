@@ -1,0 +1,496 @@
+/* ============================================================================
+   TRANSITIONS-DEV — Motor de movimiento y microinteracciones para Grimorio Tarot
+   Basado en la escala de tokens de movimiento de transitions.dev
+   ============================================================================ */
+
+:root {
+  /* ── Motion tokens — Escala canónica compartida ──────────────────────── */
+  /* Duraciones */
+  --duration-stagger: 40ms;     /* desfase secuencial entre ítems */
+  --duration-micro: 80ms;       /* delays de trazado, micro-sacudida */
+  --duration-quick: 150ms;      /* cierre de modal/dropdown, reemplazo de texto */
+  --duration-fast: 250ms;       /* apertura de modal/dropdown, cambio de tabs, slide */
+  --duration-medium: 350ms;     /* paneles laterales, hojas móviles */
+  --duration-slow: 400ms;       /* revelado de paneles y esqueletos */
+  --duration-very-slow: 500ms;  /* momentos de éxito, check celebratory */
+
+  /* Curvas de aceleración (Easings) */
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);     /* estándar natural para UI */
+  --ease-in-out: ease-in-out;                             /* transiciones de iconos/textos */
+  --ease-out: ease-out;                                   /* tooltips y desvanecimientos */
+  --ease-linear: linear;                                  /* barrido continuo de brillo */
+  --ease-bounce: cubic-bezier(0.34, 1.36, 0.64, 1);       /* badges y checkmarks */
+  --ease-bounce-strong: cubic-bezier(0.34, 3.85, 0.64, 1);/* retornos elásticos */
+
+  /* Distancias */
+  --distance-micro: 4px;
+  --distance-small: 6px;
+  --distance-base: 8px;
+  --distance-medium: 12px;
+  --distance-large: 30px;
+
+  /* Escalas */
+  --scale-large: 0.96;
+  --scale-medium: 0.97;
+  --scale-small: 0.98;
+  --scale-tiny: 0.99;
+
+  /* Difuminado cinético (Blur) */
+  --blur-small: 2px;
+  --blur-medium: 3px;
+  --blur-large: 8px;
+
+  /* ── Variables de componentes transitions-dev ────────────────────────── */
+  /* Modal open / close */
+  --modal-open-dur: 250ms;
+  --modal-close-dur: 150ms;
+  --modal-scale: 0.96;
+  --modal-scale-close: 0.96;
+  --modal-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Menu dropdown / Popover */
+  --dropdown-open-dur: 250ms;
+  --dropdown-close-dur: 150ms;
+  --dropdown-pre-scale: 0.97;
+  --dropdown-closing-scale: 0.99;
+  --dropdown-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Panel reveal / Sheet */
+  --panel-open-dur: 380ms;
+  --panel-close-dur: 280ms;
+  --panel-translate: 48px;
+  --panel-blur: 3px;
+  --panel-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Card tilt */
+  --tilt-perspective: 1000px;
+  --tilt-return: 700ms;
+  --tilt-return-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --tilt-follow: 250ms;
+  --tilt-follow-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --tilt-glare-opacity: 0.28;
+  --tilt-glare-fade: 300ms;
+  --tilt-glare-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Error state shake */
+  --shake-distance: 6px;
+  --shake-overshoot: 4px;
+  --shake-dur-a: 80ms;
+  --shake-dur-b: 60ms;
+  --shake-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --revert-hold: 2400ms;
+  --revert-dur: 250ms;
+
+  /* Success check */
+  --check-opacity-dur: 400ms;
+  --check-rotate-dur: 450ms;
+  --check-rotate-from: 60deg;
+  --check-bob-dur: 400ms;
+  --check-y-amount: 14px;
+  --check-blur-dur: 400ms;
+  --check-blur-from: 6px;
+  --check-path-dur: 450ms;
+  --check-path-delay: 80ms;
+  --check-ease-bob: cubic-bezier(0.34, 1.35, 0.64, 1);
+
+  /* Skeleton loader */
+  --shimmer-dur: 2000ms;
+}
+
+/* ============================================================================
+   1. MODALES Y DIÁLOGOS (.t-modal)
+   ============================================================================ */
+.t-modal,
+[data-sonner-toaster] [data-sonner-toast] {
+  will-change: transform, opacity;
+}
+
+/* Soporte para clases nativas y atributos de estado Radix */
+.t-modal {
+  transform-origin: center center;
+  transition:
+    transform var(--modal-open-dur) var(--modal-ease),
+    opacity var(--modal-open-dur) var(--modal-ease);
+}
+
+.t-modal[data-state="open"],
+.t-modal.is-open {
+  animation: t-modal-enter var(--modal-open-dur) var(--modal-ease) forwards;
+}
+
+.t-modal[data-state="closed"],
+.t-modal.is-closing {
+  animation: t-modal-exit var(--modal-close-dur) var(--modal-ease) forwards;
+  pointer-events: none;
+}
+
+@keyframes t-modal-enter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(var(--modal-scale));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes t-modal-exit {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(var(--modal-scale-close));
+  }
+}
+
+/* ============================================================================
+   2. MENÚS DESPLEGABLES Y POPOVERS (.t-dropdown)
+   ============================================================================ */
+.t-dropdown {
+  transform-origin: var(--radix-popover-content-transform-origin, top center);
+  will-change: transform, opacity;
+}
+
+.t-dropdown[data-state="open"],
+.t-dropdown.is-open {
+  animation: t-dropdown-enter var(--dropdown-open-dur) var(--dropdown-ease) forwards;
+}
+
+.t-dropdown[data-state="closed"],
+.t-dropdown.is-closing {
+  animation: t-dropdown-exit var(--dropdown-close-dur) var(--dropdown-ease) forwards;
+  pointer-events: none;
+}
+
+@keyframes t-dropdown-enter {
+  from {
+    opacity: 0;
+    transform: scale(var(--dropdown-pre-scale));
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes t-dropdown-exit {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(var(--dropdown-closing-scale));
+  }
+}
+
+/* ============================================================================
+   3. PANELES LATERALES Y HOJAS (.t-panel-slide)
+   ============================================================================ */
+.t-panel-slide {
+  will-change: transform, opacity, filter;
+}
+
+.t-panel-slide[data-side="right"][data-state="open"] {
+  animation: t-slide-in-right var(--panel-open-dur) var(--panel-ease) forwards;
+}
+.t-panel-slide[data-side="right"][data-state="closed"] {
+  animation: t-slide-out-right var(--panel-close-dur) var(--panel-ease) forwards;
+}
+
+.t-panel-slide[data-side="left"][data-state="open"] {
+  animation: t-slide-in-left var(--panel-open-dur) var(--panel-ease) forwards;
+}
+.t-panel-slide[data-side="left"][data-state="closed"] {
+  animation: t-slide-out-left var(--panel-close-dur) var(--panel-ease) forwards;
+}
+
+.t-panel-slide[data-side="bottom"][data-state="open"] {
+  animation: t-slide-in-bottom var(--panel-open-dur) var(--panel-ease) forwards;
+}
+.t-panel-slide[data-side="bottom"][data-state="closed"] {
+  animation: t-slide-out-bottom var(--panel-close-dur) var(--panel-ease) forwards;
+}
+
+@keyframes t-slide-in-right {
+  from {
+    opacity: 0;
+    filter: blur(var(--panel-blur));
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateX(0);
+  }
+}
+
+@keyframes t-slide-out-right {
+  from {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    filter: blur(var(--panel-blur));
+    transform: translateX(100%);
+  }
+}
+
+@keyframes t-slide-in-left {
+  from {
+    opacity: 0;
+    filter: blur(var(--panel-blur));
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateX(0);
+  }
+}
+
+@keyframes t-slide-out-left {
+  from {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    filter: blur(var(--panel-blur));
+    transform: translateX(-100%);
+  }
+}
+
+@keyframes t-slide-in-bottom {
+  from {
+    opacity: 0;
+    filter: blur(var(--panel-blur));
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+
+@keyframes t-slide-out-bottom {
+  from {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    filter: blur(var(--panel-blur));
+    transform: translateY(100%);
+  }
+}
+
+/* ============================================================================
+   4. TARJETAS Y ELEMENTOS INTERACTIVOS CON FEEDBACK TÁCTIL
+   ============================================================================ */
+.t-card-interactive {
+  transition:
+    transform var(--duration-fast) var(--ease-smooth-out),
+    box-shadow var(--duration-fast) var(--ease-smooth-out),
+    border-color var(--duration-fast) var(--ease-smooth-out);
+  will-change: transform, box-shadow;
+}
+
+.t-card-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.08);
+}
+
+.t-card-interactive:active {
+  transform: translateY(0) scale(0.99);
+  transition-duration: var(--duration-quick);
+}
+
+/* Efecto de inclinación e iluminación para naipes de tarot */
+.t-tarot-plate {
+  perspective: var(--tilt-perspective);
+  transition: transform var(--tilt-return) var(--tilt-return-ease);
+  will-change: transform;
+}
+
+.t-tarot-plate:hover {
+  transform: translateY(-3px) rotateX(2deg) rotateY(-2deg);
+  transition: transform var(--tilt-follow) var(--tilt-follow-ease);
+}
+
+/* Intercambio suave de carta */
+.t-card-flip {
+  transition: transform 320ms cubic-bezier(0.34, 1.25, 0.64, 1), opacity 250ms ease-out;
+}
+
+/* ============================================================================
+   5. SACUDIDA ANTE ERRORES (.t-shake / .is-shaking)
+   ============================================================================ */
+.t-shake,
+.is-shaking {
+  animation: t-input-shake calc(var(--shake-dur-a) * 2 + var(--shake-dur-b) * 2) linear;
+  will-change: transform;
+}
+
+@keyframes t-input-shake {
+  0% {
+    transform: translateX(0);
+    animation-timing-function: var(--shake-ease);
+  }
+  28.57% {
+    transform: translateX(var(--shake-distance));
+    animation-timing-function: var(--shake-ease);
+  }
+  57.14% {
+    transform: translateX(calc(var(--shake-distance) * -1));
+    animation-timing-function: var(--shake-ease);
+  }
+  78.57% {
+    transform: translateX(var(--shake-overshoot));
+    animation-timing-function: var(--shake-ease);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+/* ============================================================================
+   6. CHECKMARK DE ÉXITO (.t-success-check)
+   ============================================================================ */
+.t-success-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: center;
+  will-change: transform, opacity, filter;
+}
+
+.t-success-check[data-state="in"] {
+  animation:
+    t-check-fade var(--check-opacity-dur) var(--ease-smooth-out) forwards,
+    t-check-rotate var(--check-rotate-dur) var(--ease-smooth-out) forwards,
+    t-check-bob var(--check-bob-dur) var(--check-ease-bob) forwards;
+}
+
+@keyframes t-check-fade {
+  from {
+    opacity: 0;
+    filter: blur(var(--check-blur-from));
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+
+@keyframes t-check-rotate {
+  from {
+    transform: rotate(calc(-1 * var(--check-rotate-from))) scale(0.6);
+  }
+  to {
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+@keyframes t-check-bob {
+  0% {
+    transform: translateY(var(--check-y-amount)) scale(0.8);
+  }
+  60% {
+    transform: translateY(-4px) scale(1.06);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ============================================================================
+   7. ESQUELETO SHIMMER (.t-skel)
+   ============================================================================ */
+.t-skel {
+  position: relative;
+  overflow: hidden;
+}
+
+.t-skel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.16) 40%,
+    rgba(255, 255, 255, 0.3) 50%,
+    rgba(255, 255, 255, 0.16) 60%,
+    transparent 100%
+  );
+  animation: t-shimmer-sweep var(--shimmer-dur) infinite linear;
+}
+
+.dark .t-skel::after {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.04) 40%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.04) 60%,
+    transparent 100%
+  );
+}
+
+@keyframes t-shimmer-sweep {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* ============================================================================
+   8. ENTRADA DE VISTA / PÁGINA (.t-page-enter)
+   ============================================================================ */
+.t-page-enter {
+  animation: t-fade-rise var(--duration-fast) var(--ease-smooth-out) forwards;
+  will-change: opacity, transform, filter;
+}
+
+@keyframes t-fade-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+/* ============================================================================
+   9. ACCESIBILIDAD — PREFERS-REDUCED-MOTION
+   ============================================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .t-modal,
+  .t-dropdown,
+  .t-panel-slide,
+  .t-card-interactive,
+  .t-tarot-plate,
+  .t-shake,
+  .is-shaking,
+  .t-success-check,
+  .t-skel::after,
+  .t-page-enter {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+    filter: none !important;
+  }
+}

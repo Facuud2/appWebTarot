@@ -15,7 +15,10 @@ export const AlertDialogOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <RadixAlertDialog.Overlay
     ref={ref}
-    className={cn("fixed inset-0 z-50 bg-black/55", className)}
+    className={cn(
+      "fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px] transition-opacity duration-200 data-[state=closed]:opacity-0 data-[state=open]:opacity-100",
+      className
+    )}
     {...props}
   />
 ));
@@ -30,7 +33,7 @@ export const AlertDialogContent = React.forwardRef<
     <RadixAlertDialog.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-border bg-ground p-6 shadow-xl",
+        "t-modal fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-border bg-ground p-6 shadow-xl",
         className
       )}
       {...props}

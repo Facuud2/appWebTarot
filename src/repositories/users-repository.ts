@@ -14,7 +14,7 @@ import type {
 } from "@/schemas/domain";
 import { workspaceBackupSchema } from "@/schemas/domain";
 import { hashPassword, verifyPassword } from "@/server/crypto-auth";
-import { DEMO_USER_ID, getDb } from "@/server/db";
+import { DEMO_USER_ID, getDb, seedDemoWorkspaceIfMissing } from "@/server/db";
 import { mapUserRow } from "@/server/session";
 import type { User, WorkspaceBackupPayload } from "@/types/domain";
 
@@ -47,9 +47,16 @@ export function authenticateUser(
 }
 
 export function getDemoUser(db: DatabaseSync = getDb()): User {
-  const row = db
+  let row = db
     .prepare("SELECT * FROM users WHERE id = ?")
     .get(DEMO_USER_ID) as AuthUserRow | undefined;
+
+  if (!row) {
+    seedDemoWorkspaceIfMissing(db);
+    row = db
+      .prepare("SELECT * FROM users WHERE id = ?")
+      .get(DEMO_USER_ID) as AuthUserRow | undefined;
+  }
 
   if (!row) {
     throw new Error("El espacio de demostración no está inicializado.");
@@ -72,6 +79,11 @@ export function registerNewUser(
 
   const userId = `user-${randomUUID()}`;
   const nowIso = new Date().toISOString();
+  const rawWorkspace = input.workspaceName?.trim();
+  const resolvedWorkspaceName =
+    rawWorkspace && rawWorkspace.length > 0
+      ? rawWorkspace
+      : `Mesa de ${input.name.trim()}`;
 
   const prefs = {
     defaultDeckId: null,
@@ -89,7 +101,7 @@ export function registerNewUser(
       userId,
       normalizedEmail,
       input.name.trim(),
-      input.workspaceName.trim(),
+      resolvedWorkspaceName,
       hashPassword(input.password),
       JSON.stringify(prefs),
       nowIso

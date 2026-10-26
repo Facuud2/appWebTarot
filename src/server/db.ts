@@ -1,6 +1,7 @@
 import "server-only";
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -546,9 +547,13 @@ function syncBuiltinDecks(db: DatabaseSync): void {
   }
 }
 
-function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
-  // Los datos de prueba y demostración han sido desactivados por requerimiento.
-  return;
+export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
+  const existingUser = db
+    .prepare("SELECT id FROM users WHERE id = ?")
+    .get(DEMO_USER_ID) as { id: string } | undefined;
+  if (existingUser) {
+    return;
+  }
 
   const now = new Date();
   const isoOffset = (daysDelta: number, hour = 11, minute = 0): string => {
@@ -1184,21 +1189,57 @@ function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
   }
 }
 
+export function resolveDatabasePath(): string {
+  const envPath =
+    process.env.GRIMORIO_DB_PATH?.trim() ||
+    process.env.DATABASE_PATH?.trim();
+
+  if (envPath) return envPath;
+
+  // En Vercel / AWS Lambda o entornos serverless:
+  // /var/task es de solo lectura. El único directorio con permisos de escritura es os.tmpdir() (/tmp).
+  if (
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.NOW_REGION
+  ) {
+    return path.join(os.tmpdir(), "grimorio.db");
+  }
+
+  return "./data/grimorio.db";
+}
+
 export function createDatabaseInstance(
   targetPath: string,
   options?: { seedDemo?: boolean }
 ): DatabaseSync {
-  if (targetPath !== ":memory:") {
-    const resolved = path.resolve(targetPath);
+  let finalPath = targetPath;
+
+  if (finalPath !== ":memory:") {
+    const resolved = path.resolve(/*turbopackIgnore: true*/ finalPath);
     const dir = path.dirname(resolved);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+    } catch (err) {
+      // Fallback a /tmp si el directorio es de solo lectura (como en Vercel Serverless)
+      const tmpPath = path.join(os.tmpdir(), "grimorio.db");
+      console.warn(
+        `Aviso: No se pudo crear o acceder al directorio ${dir}. Usando fallback en ${tmpPath}.`,
+        err
+      );
+      finalPath = tmpPath;
+      const tmpDir = path.dirname(path.resolve(/*turbopackIgnore: true*/ tmpPath));
+      if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      }
     }
   }
 
-  const db = new DatabaseSync(targetPath);
+  const db = new DatabaseSync(finalPath);
   db.exec("PRAGMA foreign_keys = ON;");
-  if (targetPath !== ":memory:") {
+  if (finalPath !== ":memory:") {
     db.exec("PRAGMA journal_mode = WAL;");
     db.exec("PRAGMA busy_timeout = 5000;");
   }
@@ -1221,10 +1262,7 @@ const globalForDb = globalThis as unknown as {
 };
 
 export function getDb(): DatabaseSync {
-  const configuredPath =
-    process.env.GRIMORIO_DB_PATH?.trim() ||
-    process.env.DATABASE_PATH?.trim() ||
-    "./data/grimorio.db";
+  const configuredPath = resolveDatabasePath();
   if (
     globalForDb.__grimorioDb &&
     globalForDb.__grimorioDbPath === configuredPath
@@ -1242,10 +1280,7 @@ export function getEnvironmentStatus(): {
   databasePath: string;
   hasCustomSessionSecret: boolean;
 } {
-  const databasePath =
-    process.env.GRIMORIO_DB_PATH?.trim() ||
-    process.env.DATABASE_PATH?.trim() ||
-    "./data/grimorio.db";
+  const databasePath = resolveDatabasePath();
   const secret =
     process.env.GRIMORIO_SESSION_SECRET?.trim() ||
     process.env.SESSION_SECRET?.trim() ||

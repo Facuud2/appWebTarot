@@ -312,10 +312,10 @@ export function AppShell({
               setTheme(resolvedTheme === "dark" ? "light" : "dark")
             }
             aria-label="Cambiar tema claro u oscuro"
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-muted hover:text-ink"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-muted hover:text-ink active:scale-95 transition-all duration-150"
           >
-            <Sun className="hidden size-4 dark:block" aria-hidden="true" />
-            <Moon className="block size-4 dark:hidden" aria-hidden="true" />
+            <Sun className="hidden size-4 dark:block transition-transform duration-200" aria-hidden="true" />
+            <Moon className="block size-4 dark:hidden transition-transform duration-200" aria-hidden="true" />
           </button>
         </div>
 
@@ -421,9 +421,10 @@ export function AppShell({
       {/* Main Content Canvas */}
       <div className="min-w-0 w-full max-w-full overflow-x-hidden lg:pl-[236px]">
         <main
+          key={pathname}
           id="contenido-principal"
           tabIndex={-1}
-          className="mx-auto w-full min-w-0 max-w-[1160px] px-4 py-5 pb-24 sm:px-6 sm:py-8 lg:px-10 lg:py-9 lg:pb-12 outline-none overflow-x-hidden"
+          className="t-page-enter mx-auto w-full min-w-0 max-w-[1160px] px-4 py-5 pb-24 sm:px-6 sm:py-8 lg:px-10 lg:py-9 lg:pb-12 outline-none overflow-x-hidden"
         >
           {children}
         </main>
@@ -432,7 +433,7 @@ export function AppShell({
       {/* Mobile Bottom Bar (<= 5 destinations with icon + label) */}
       <nav
         aria-label="Navegación móvil rápida"
-        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-ground pb-[env(safe-area-inset-bottom)] md:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-ground/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)] md:hidden shadow-sm"
       >
         {primaryNav.map((item) => {
           const active = isRouteActive(item.href, item.exact);
@@ -443,15 +444,21 @@ export function AppShell({
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex min-h-[54px] min-w-0 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[10px] sm:text-[11px] leading-tight transition-colors",
-                active ? "text-ink font-medium" : "text-muted"
+                "relative flex min-h-[54px] min-w-0 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[10px] sm:text-[11px] leading-tight transition-all duration-150 active:scale-95",
+                active ? "text-ink font-semibold" : "text-muted hover:text-ink"
               )}
             >
               <Icon
-                className={cn("size-4 shrink-0", active && "text-accent")}
+                className={cn(
+                  "size-4 shrink-0 transition-transform duration-200",
+                  active && "scale-110 text-accent"
+                )}
                 aria-hidden="true"
               />
               <span className="max-w-full truncate">{item.shortLabel}</span>
+              {active ? (
+                <span className="absolute bottom-1 h-0.5 w-4 rounded-full bg-accent" />
+              ) : null}
             </Link>
           );
         })}

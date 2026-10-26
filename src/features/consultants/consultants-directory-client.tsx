@@ -119,9 +119,9 @@ export function ConsultantsDirectoryClient({
             type="button"
             onClick={() => applyFilter({ archived: false })}
             aria-pressed={!showingArchived}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-150 active:scale-95 ${
               !showingArchived
-                ? "bg-ground text-ink border border-border"
+                ? "bg-ground text-ink border border-border shadow-xs"
                 : "text-muted hover:text-ink"
             }`}
           >
@@ -131,9 +131,9 @@ export function ConsultantsDirectoryClient({
             type="button"
             onClick={() => applyFilter({ archived: true })}
             aria-pressed={showingArchived}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-150 active:scale-95 ${
               showingArchived
-                ? "bg-ground text-ink border border-border"
+                ? "bg-ground text-ink border border-border shadow-xs"
                 : "text-muted hover:text-ink"
             }`}
           >
@@ -155,7 +155,7 @@ export function ConsultantsDirectoryClient({
                 type="button"
                 onClick={() => applyFilter({ tag: active ? "" : tag })}
                 aria-pressed={active}
-                className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
+                className={`rounded-md px-2.5 py-1 text-xs transition-all duration-150 active:scale-95 ${
                   active
                     ? "bg-primary text-on-primary font-medium"
                     : "border border-border bg-ground text-muted hover:text-ink"
@@ -213,7 +213,7 @@ export function ConsultantsDirectoryClient({
             {consultants.map((c) => (
               <div
                 key={c.id}
-                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between hover:bg-surface/60 transition-colors"
+                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between hover:bg-surface/60 transition-all duration-150"
               >
                 <div className="flex items-start gap-3 min-w-0">
                   <ConsultantAvatar

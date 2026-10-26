@@ -458,7 +458,7 @@ export function GrimorioBrowserClient({
                 <Link
                   key={item.card.id}
                   href={`/grimorio/${item.card.slug}`}
-                  className="group flex min-w-0 items-start gap-3.5 rounded-xl border border-border bg-ground p-4 transition-colors hover:border-control hover:bg-surface/60"
+                  className="t-card-interactive group flex min-w-0 items-start gap-3.5 rounded-xl border border-border bg-ground p-4 hover:border-control hover:bg-surface/60"
                 >
                   <TarotCardPlate
                     card={item.card}

@@ -19,11 +19,12 @@ export const SheetContent = React.forwardRef<
   SheetContentProps
 >(({ side = "right", className, children, ...props }, ref) => (
   <RadixDialog.Portal>
-    <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/55" />
+    <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px] transition-opacity duration-200 data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
     <RadixDialog.Content
       ref={ref}
+      data-side={side}
       className={cn(
-        "fixed z-50 flex flex-col bg-ground border-border shadow-xl p-5 overflow-y-auto",
+        "t-panel-slide fixed z-50 flex flex-col bg-ground border-border shadow-xl p-5 overflow-y-auto",
         side === "left" &&
           "inset-y-0 left-0 h-full w-[280px] max-w-[85vw] border-r",
         side === "right" &&

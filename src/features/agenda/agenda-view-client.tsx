@@ -182,7 +182,7 @@ export function AgendaViewClient({
       <article
         key={appt.id}
         className={cn(
-          "rounded-xl border border-border bg-ground p-4 sm:p-5 flex flex-col gap-4",
+          "t-card-interactive rounded-xl border border-border bg-ground p-4 sm:p-5 flex flex-col gap-4",
           compact
             ? "space-y-1"
             : "lg:flex-row lg:items-start lg:justify-between"

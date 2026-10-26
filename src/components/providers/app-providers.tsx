@@ -16,10 +16,11 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       <Toaster
         position="bottom-right"
         closeButton
+        duration={2000}
+        richColors
         toastOptions={{
-          duration: 4000,
-          className:
-            "!bg-ground !text-ink !border !border-border !shadow-lg !rounded-xl",
+          duration: 2000,
+          className: "!rounded-xl !shadow-md !font-sans",
         }}
       />
     </ThemeProvider>

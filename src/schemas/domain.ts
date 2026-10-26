@@ -76,8 +76,8 @@ export const registerSchema = z.object({
   workspaceName: z
     .string()
     .trim()
-    .min(2, "Asigna un nombre a tu espacio de trabajo.")
-    .max(80, "El nombre del espacio no puede superar los 80 caracteres."),
+    .max(80, "El nombre del espacio no puede superar los 80 caracteres.")
+    .optional(),
   email: z
     .string()
     .trim()
