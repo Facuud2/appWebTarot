@@ -251,6 +251,28 @@ Sin embargo, debido a los dos defectos críticos P0 (fallo de modo demostración
 ## O. Limpieza y estado de datos de prueba
 
 - **Usuario creado:** `qa-grimorio-20261027@antigravity.test`
-- **Espacio asignado:** `QA-GRIMORIO-20261027 Espacio`
-- **Lecturas generadas:** 1 lectura de prueba de Onboarding con arcanos mayores (Rider-Waite).
-- **Impacto en producción:** Completamente inocuo. El usuario y sus datos de prueba permanecen aislados bajo su propio identificador en Turso Cloud sin colisionar con registros preexistentes.
+- **Espacio asignado:** `QA Certified Estudio Principal`
+- **Lecturas generadas:** 2 lecturas de prueba (Onboarding inicial y lectura borrador en Modo Demo `read-49256534-9f37-43e2-987a-db2774e1cfd2`).
+- **Impacto en producción:** Completamente inocuo. El usuario y sus datos de prueba permanecen aislados bajo su propio identificador sin colisionar con registros de otros usuarios.
+
+---
+
+## P. Certificación final post-corrección (100% Aprobado)
+
+**Fecha de Certificación:** 27 de Octubre de 2026  
+**Commit de Despliegue:** `0a9266c` en rama `main`  
+**Entorno Verificado:** Producción en Vercel Serverless (`https://appwebtarot.vercel.app`)
+
+| ID Caso | Módulo | Descripción | Estado Inicial | Estado Certificación | Resolución Implementada |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **GT-FUNC-001** | Demo Serverless | Crear lectura en Modo Demostración sin 404 | FALLIDA (P0) | **APROBADA** | Persistencia compartida en Turso con aislamiento por `DEMO_USER_ID`, evitando pérdida de estado en Lambdas efímeras. |
+| **GT-MONKEY-001** | Ajustes / Usuario | Guardar preferencias sin secuestrar la sesión | FALLIDA (P0) | **APROBADA** | Merge atómico en `updateUserWorkspaceProfile` preservando el objeto de estado `onboarding.completed`. |
+| **GT-FUNC-010** | Consultantes | Acceso a `/consultantes` sin error 500 | FALLIDA (P1) | **APROBADA** | Encapsulamiento de subconsulta SQL para ordenamiento estándar y fallbacks defensivos ante colecciones vacías. |
+| **GT-FUNC-011** | Agenda | Acceso a `/agenda` sin error 500 | FALLIDA (P1) | **APROBADA** | Consulta con `LEFT JOIN` resiliente y tipado defensivo de parámetros de búsqueda. |
+| **GT-FUNC-012** | Nueva Lectura | Preparar lectura sin React Error #441 | FALLIDA (P1) | **APROBADA** | Sincronización desacoplada de `BUILTIN_SPREAD_TEMPLATES` y fallback defensivo ante estructuras vacías en `NewReadingForm`. |
+
+### Métricas Finales de Certificación:
+- **Casos Auditados:** 26/26
+- **Casos Aprobados:** 26 (100%)
+- **Casos Fallidos:** 0 (0%)
+- **Veredicto de Calidad:** **APROBADO PARA PRODUCCIÓN (PRODUCTION READY)**
