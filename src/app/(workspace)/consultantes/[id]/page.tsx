@@ -29,13 +29,13 @@ export default async function ConsultantDetailPage({
   const user = await requireUser();
   const { id } = await params;
 
-  const detail = getConsultantDetail(user.id, id);
+  const detail = await getConsultantDetail(user.id, id);
   if (!detail) {
     notFound();
   }
 
   const { consultant, readings, appointments, frequentCards } = detail;
-  const tagSuggestions = listUserTags(user.id).map((t) => t.name);
+  const tagSuggestions = (await listUserTags(user.id)).map((t) => t.name);
 
   return (
     <div className="space-y-8">

@@ -1,10 +1,9 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import type { AppointmentFormValues } from "@/schemas/domain";
 import { createQuickConsultant } from "@/repositories/consultants-repository";
-import { getDb } from "@/server/db";
+import { getDb, type AppDatabase } from "@/server/db";
 import type {
   Appointment,
   AppointmentModality,
@@ -66,11 +65,11 @@ export interface ListAppointmentsOptions {
   ascending?: boolean;
 }
 
-export function listAppointments(
+export async function listAppointments(
   userId: string,
   options: ListAppointmentsOptions = {},
-  db: DatabaseSync = getDb(userId)
-): Appointment[] {
+  db: AppDatabase = getDb(userId)
+): Promise<Appointment[]> {
   const conditions: string[] = ["a.user_id = ?"];
   const params: Array<string | number> = [userId];
 
@@ -92,7 +91,7 @@ export function listAppointments(
   }
 
   const orderDir = options.ascending === false ? "DESC" : "ASC";
-  const rows = db
+  const rows = (await db
     .prepare(
       `SELECT
          a.*,
@@ -104,16 +103,16 @@ export function listAppointments(
        WHERE ${conditions.join(" AND ")}
        ORDER BY a.scheduled_at ${orderDir}`
     )
-    .all(...params) as unknown as AppointmentRow[];
+    .all(...params)) as unknown as AppointmentRow[];
 
   return rows.map(mapAppointmentRow);
 }
 
-export function listAppointmentsForConsultant(
+export async function listAppointmentsForConsultant(
   userId: string,
   consultantId: string,
-  db: DatabaseSync = getDb(userId)
-): Appointment[] {
+  db: AppDatabase = getDb(userId)
+): Promise<Appointment[]> {
   return listAppointments(
     userId,
     { consultantId, ascending: false },
@@ -121,12 +120,12 @@ export function listAppointmentsForConsultant(
   );
 }
 
-export function getAppointmentById(
+export async function getAppointmentById(
   userId: string,
   appointmentId: string,
-  db: DatabaseSync = getDb(userId)
-): Appointment | null {
-  const row = db
+  db: AppDatabase = getDb(userId)
+): Promise<Appointment | null> {
+  const row = (await db
     .prepare(
       `SELECT
          a.*,
@@ -137,20 +136,20 @@ export function getAppointmentById(
        JOIN consultants c ON c.id = a.consultant_id
        WHERE a.user_id = ? AND a.id = ?`
     )
-    .get(userId, appointmentId) as AppointmentRow | undefined;
+    .get(userId, appointmentId)) as AppointmentRow | undefined;
 
   return row ? mapAppointmentRow(row) : null;
 }
 
-export function createAppointment(
+export async function createAppointment(
   userId: string,
   values: AppointmentFormValues,
-  db: DatabaseSync = getDb(userId)
-): Appointment {
+  db: AppDatabase = getDb(userId)
+): Promise<Appointment> {
   let consultantId = values.consultantId.trim();
 
   if (values.quickNewConsultant && values.quickNewConsultant.trim().length > 0) {
-    const created = createQuickConsultant(
+    const created = await createQuickConsultant(
       userId,
       values.quickNewConsultant.trim(),
       db
@@ -158,9 +157,9 @@ export function createAppointment(
     consultantId = created.id;
   }
 
-  const consultantCheck = db
+  const consultantCheck = (await db
     .prepare("SELECT id FROM consultants WHERE user_id = ? AND id = ?")
-    .get(userId, consultantId) as { id: string } | undefined;
+    .get(userId, consultantId)) as { id: string } | undefined;
 
   if (!consultantCheck) {
     throw new Error("El consultante seleccionado no pertenece a tu agenda.");
@@ -176,7 +175,7 @@ export function createAppointment(
     ? values.durationMinutes
     : null;
 
-  db.prepare(
+  await db.prepare(
     `INSERT INTO appointments (
       id, user_id, consultant_id, title, scheduled_at, duration_minutes,
       modality, status, intention, prep_notes, linked_reading_id, created_at, updated_at
@@ -196,22 +195,22 @@ export function createAppointment(
     nowIso
   );
 
-  const created = getAppointmentById(userId, id, db);
+  const created = await getAppointmentById(userId, id, db);
   if (!created) {
     throw new Error("No se pudo recuperar la cita creada.");
   }
   return created;
 }
 
-export function updateAppointment(
+export async function updateAppointment(
   userId: string,
   appointmentId: string,
   values: AppointmentFormValues,
-  db: DatabaseSync = getDb(userId)
-): Appointment {
-  const consultantCheck = db
+  db: AppDatabase = getDb(userId)
+): Promise<Appointment> {
+  const consultantCheck = (await db
     .prepare("SELECT id FROM consultants WHERE user_id = ? AND id = ?")
-    .get(userId, values.consultantId) as { id: string } | undefined;
+    .get(userId, values.consultantId)) as { id: string } | undefined;
 
   if (!consultantCheck) {
     throw new Error("El consultante seleccionado no pertenece a tu agenda.");
@@ -226,7 +225,7 @@ export function updateAppointment(
     ? values.durationMinutes
     : null;
 
-  const res = db
+  const res = await db
     .prepare(
       `UPDATE appointments
        SET consultant_id = ?,
@@ -258,21 +257,21 @@ export function updateAppointment(
     throw new Error("No se encontró la cita solicitada.");
   }
 
-  const updated = getAppointmentById(userId, appointmentId, db);
+  const updated = await getAppointmentById(userId, appointmentId, db);
   if (!updated) {
     throw new Error("No se pudo recuperar la cita actualizada.");
   }
   return updated;
 }
 
-export function updateAppointmentStatus(
+export async function updateAppointmentStatus(
   userId: string,
   appointmentId: string,
   status: AppointmentStatus,
-  db: DatabaseSync = getDb(userId)
-): Appointment {
+  db: AppDatabase = getDb(userId)
+): Promise<Appointment> {
   const nowIso = new Date().toISOString();
-  const res = db
+  const res = await db
     .prepare(
       "UPDATE appointments SET status = ?, updated_at = ? WHERE user_id = ? AND id = ?"
     )
@@ -282,19 +281,19 @@ export function updateAppointmentStatus(
     throw new Error("No se encontró la cita para actualizar estado.");
   }
 
-  const updated = getAppointmentById(userId, appointmentId, db);
+  const updated = await getAppointmentById(userId, appointmentId, db);
   if (!updated) {
     throw new Error("No se pudo recuperar la cita.");
   }
   return updated;
 }
 
-export function deleteAppointment(
+export async function deleteAppointment(
   userId: string,
   appointmentId: string,
-  db: DatabaseSync = getDb(userId)
-): void {
-  const res = db
+  db: AppDatabase = getDb(userId)
+): Promise<void> {
+  const res = await db
     .prepare("DELETE FROM appointments WHERE user_id = ? AND id = ?")
     .run(userId, appointmentId);
 

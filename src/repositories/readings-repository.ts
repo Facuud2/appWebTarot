@@ -1,7 +1,6 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import { listAppointments } from "@/repositories/appointments-repository";
 import {
   createQuickConsultant,
@@ -14,13 +13,14 @@ import {
   mapCanonicalCardRow,
   type CanonicalCardRow,
 } from "@/repositories/grimorio-repository";
+import { CANONICAL_TAROT_CARDS } from "@/lib/tarot-catalog";
 import { getTagsForEntity, syncEntityTags } from "@/repositories/tags-repository";
 import type {
   CreateReadingValues,
   DeckEventFormValues,
   UpdateReadingSessionValues,
 } from "@/schemas/domain";
-import { getDb } from "@/server/db";
+import { getDb, type AppDatabase } from "@/server/db";
 import type {
   CardInterpretationLog,
   CardOrientation,
@@ -117,11 +117,11 @@ interface ReadingSummaryRow {
   events_count: number;
 }
 
-export function listReadings(
+export async function listReadings(
   userId: string,
   filters: ReadingSearchFilters = {},
-  db: DatabaseSync = getDb(userId)
-): ReadingSummary[] {
+  db: AppDatabase = getDb(userId)
+): Promise<ReadingSummary[]> {
   const conditions: string[] = ["r.user_id = ?"];
   const params: Array<string | number> = [userId];
 
@@ -222,7 +222,7 @@ export function listReadings(
     );
   }
 
-  const rows = db
+  const rows = (await db
     .prepare(
       `SELECT
          r.id,
@@ -250,11 +250,10 @@ export function listReadings(
        WHERE ${conditions.join(" AND ")}
        ORDER BY r.performed_at DESC`
     )
-    .all(...params) as unknown as ReadingSummaryRow[];
+    .all(...params)) as unknown as ReadingSummaryRow[];
 
-  const userDecksMap = new Map(
-    listAvailableDecks(userId, db).map((d) => [d.id, d])
-  );
+  const availableDecks = await listAvailableDecks(userId, db);
+  const userDecksMap = new Map(availableDecks.map((d) => [d.id, d]));
 
   const featuredCardsStmt = db.prepare(
     `SELECT
@@ -276,58 +275,62 @@ export function listReadings(
     orientation: CardOrientation;
   }
 
-  return rows.map((row): ReadingSummary => {
-    const featuredRows = featuredCardsStmt.all(
-      row.id
-    ) as unknown as FeaturedCardRow[];
+  return Promise.all(
+    rows.map(async (row): Promise<ReadingSummary> => {
+      const featuredRows = (await featuredCardsStmt.all(
+        row.id
+      )) as unknown as FeaturedCardRow[];
 
-    const consultantDisplayName = row.consultant_alias?.trim()
-      ? row.consultant_alias.trim()
-      : row.consultant_full_name;
+      const consultantDisplayName = row.consultant_alias?.trim()
+        ? row.consultant_alias.trim()
+        : row.consultant_full_name;
 
-    const deckIds = parseDeckIdsJson(row.deck_ids_json, row.deck_id);
-    const resolvedDeckNames = deckIds
-      .map((id) => userDecksMap.get(id)?.name)
-      .filter((name): name is string => Boolean(name));
-    if (resolvedDeckNames.length === 0 && row.deck_name) {
-      resolvedDeckNames.push(row.deck_name);
-    }
+      const deckIds = parseDeckIdsJson(row.deck_ids_json, row.deck_id);
+      const resolvedDeckNames = deckIds
+        .map((id) => userDecksMap.get(id)?.name)
+        .filter((name): name is string => Boolean(name));
+      if (resolvedDeckNames.length === 0 && row.deck_name) {
+        resolvedDeckNames.push(row.deck_name);
+      }
 
-    return {
-      id: row.id,
-      userId: row.user_id,
-      consultantId: row.consultant_id,
-      consultantDisplayName,
-      consultantHue: row.consultant_hue,
-      appointmentId: row.appointment_id,
-      deckId: row.deck_id,
-      deckName: resolvedDeckNames[0] ?? row.deck_name,
-      deckNames: resolvedDeckNames,
-      spreadTemplateId: row.spread_template_id,
-      spreadName: row.spread_name,
-      title: row.title,
-      questionIntention: row.question_intention,
-      status: row.status,
-      performedAt: row.performed_at,
-      updatedAt: row.updated_at,
-      cardsCount: Number(row.cards_count ?? 0),
-      eventsCount: Number(row.events_count ?? 0),
-      featuredCards: featuredRows.map((fc) => ({
-        cardId: fc.card_id,
-        canonicalName: fc.canonical_name,
-        romanNumeral: fc.roman_numeral,
-        orientation: fc.orientation,
-      })),
-      tags: getTagsForEntity(userId, "reading", row.id, db),
-    };
-  });
+      const tags = await getTagsForEntity(userId, "reading", row.id, db);
+
+      return {
+        id: row.id,
+        userId: row.user_id,
+        consultantId: row.consultant_id,
+        consultantDisplayName,
+        consultantHue: row.consultant_hue,
+        appointmentId: row.appointment_id,
+        deckId: row.deck_id,
+        deckName: resolvedDeckNames[0] ?? row.deck_name,
+        deckNames: resolvedDeckNames,
+        spreadTemplateId: row.spread_template_id,
+        spreadName: row.spread_name,
+        title: row.title,
+        questionIntention: row.question_intention,
+        status: row.status,
+        performedAt: row.performed_at,
+        updatedAt: row.updated_at,
+        cardsCount: Number(row.cards_count ?? 0),
+        eventsCount: Number(row.events_count ?? 0),
+        featuredCards: featuredRows.map((fc) => ({
+          cardId: fc.card_id,
+          canonicalName: fc.canonical_name,
+          romanNumeral: fc.roman_numeral,
+          orientation: fc.orientation,
+        })),
+        tags,
+      };
+    })
+  );
 }
 
-export function getReadingDetail(
+export async function getReadingDetail(
   userId: string,
   readingId: string,
-  db: DatabaseSync = getDb(userId)
-): ReadingDetail | null {
+  db: AppDatabase = getDb(userId)
+): Promise<ReadingDetail | null> {
   interface ReadingDetailRow {
     id: string;
     user_id: string;
@@ -355,7 +358,7 @@ export function getReadingDetail(
     updated_at: string;
   }
 
-  const row = db
+  const row = (await db
     .prepare(
       `SELECT
          r.*,
@@ -369,14 +372,13 @@ export function getReadingDetail(
        LEFT JOIN decks d ON d.id = r.deck_id
        WHERE r.user_id = ? AND r.id = ?`
     )
-    .get(userId, readingId) as ReadingDetailRow | undefined;
+    .get(userId, readingId)) as ReadingDetailRow | undefined;
 
   if (!row) return null;
 
   const deckIds = parseDeckIdsJson(row.deck_ids_json, row.deck_id);
-  const userDecksMap = new Map(
-    listAvailableDecks(userId, db).map((d) => [d.id, d])
-  );
+  const availableDecks = await listAvailableDecks(userId, db);
+  const userDecksMap = new Map(availableDecks.map((d) => [d.id, d]));
   const hydratedDecks = deckIds
     .map((id) => userDecksMap.get(id))
     .filter((d): d is NonNullable<typeof d> => Boolean(d))
@@ -401,9 +403,9 @@ export function getReadingDetail(
 
   let customPositions = parsePositionsJson(row.custom_positions_json);
   if (customPositions.length === 0 && row.spread_template_id) {
-    const tplRow = db
+    const tplRow = (await db
       .prepare("SELECT positions_json FROM spread_templates WHERE id = ?")
-      .get(row.spread_template_id) as { positions_json: string } | undefined;
+      .get(row.spread_template_id)) as { positions_json: string } | undefined;
     if (tplRow) {
       customPositions = parsePositionsJson(tplRow.positions_json);
     }
@@ -423,7 +425,7 @@ export function getReadingDetail(
     rc_created_at: string;
   }
 
-  const cardRows = db
+  const cardRows = (await db
     .prepare(
       `SELECT
          cc.*,
@@ -443,9 +445,10 @@ export function getReadingDetail(
        WHERE rc.reading_id = ?
        ORDER BY rc.position_index ASC`
     )
-    .all(readingId) as unknown as ReadingCardJoinRow[];
+    .all(readingId)) as unknown as ReadingCardJoinRow[];
 
-  const events = listDeckEventsForReading(userId, readingId, db);
+  const events = await listDeckEventsForReading(userId, readingId, db);
+  const tags = await getTagsForEntity(userId, "reading", readingId, db);
 
   return {
     id: row.id,
@@ -498,15 +501,15 @@ export function getReadingDetail(
       })
     ),
     events,
-    tags: getTagsForEntity(userId, "reading", readingId, db),
+    tags,
   };
 }
 
-export function createReadingDraft(
+export async function createReadingDraft(
   userId: string,
   values: CreateReadingValues,
-  db: DatabaseSync = getDb(userId)
-): ReadingDetail {
+  db: AppDatabase = getDb(userId)
+): Promise<ReadingDetail> {
   const id = `read-${randomUUID()}`;
   const nowIso = new Date().toISOString();
   const parsedDate = new Date(values.performedAt);
@@ -518,7 +521,7 @@ export function createReadingDraft(
   const appointmentId = values.appointmentId.trim() || null;
 
   if (values.quickNewConsultant && values.quickNewConsultant.trim().length > 0) {
-    const createdConsultant = createQuickConsultant(
+    const createdConsultant = await createQuickConsultant(
       userId,
       values.quickNewConsultant.trim(),
       db
@@ -529,17 +532,16 @@ export function createReadingDraft(
   }
 
   if (consultantId) {
-    const check = db
+    const check = (await db
       .prepare("SELECT id FROM consultants WHERE user_id = ? AND id = ?")
-      .get(userId, consultantId) as { id: string } | undefined;
+      .get(userId, consultantId)) as { id: string } | undefined;
     if (!check) {
       throw new Error("El consultante elegido no pertenece a tu espacio.");
     }
   }
 
-  const userDeckIdsSet = new Set(
-    listAvailableDecks(userId, db).map((d) => d.id)
-  );
+  const availableDecks = await listAvailableDecks(userId, db);
+  const userDeckIdsSet = new Set(availableDecks.map((d) => d.id));
   const selectedExistingDeckIds = values.deckIds
     .map((d) => d.trim())
     .filter((d) => d.length > 0 && userDeckIdsSet.has(d));
@@ -565,11 +567,11 @@ export function createReadingDraft(
   } else {
     const candidateSpreadId = values.spreadTemplateId.trim() || null;
     if (candidateSpreadId) {
-      const spreadRow = db
+      const spreadRow = (await db
         .prepare(
           "SELECT id, name, positions_json FROM spread_templates WHERE id = ? AND (is_builtin = 1 OR user_id = ?)"
         )
-        .get(candidateSpreadId, userId) as
+        .get(candidateSpreadId, userId)) as
         | { id: string; name: string; positions_json: string }
         | undefined;
       if (spreadRow) {
@@ -586,13 +588,13 @@ export function createReadingDraft(
       ? values.questionIntention.trim().slice(0, 72)
       : `Sesión de lectura · ${performedIso.slice(0, 10)}`);
 
-  db.exec("BEGIN");
+  await db.exec("BEGIN");
   try {
     const createdQuickIds: string[] = [];
     for (const rawDeckName of values.quickNewDecks) {
       const cleanName = rawDeckName.trim();
       if (!cleanName) continue;
-      const createdDeck = createQuickDeck(userId, cleanName, db);
+      const createdDeck = await createQuickDeck(userId, cleanName, db);
       createdQuickIds.push(createdDeck.id);
     }
 
@@ -601,7 +603,7 @@ export function createReadingDraft(
     );
     const primaryDeckId = allDeckIds[0] ?? null;
 
-    db.prepare(
+    await db.prepare(
       `INSERT INTO readings (
         id, user_id, consultant_id, appointment_id, deck_id, deck_ids_json,
         spread_template_id, spread_name, custom_positions_json, title,
@@ -628,32 +630,32 @@ export function createReadingDraft(
     );
 
     if (appointmentId) {
-      db.prepare(
+      await db.prepare(
         `UPDATE appointments
          SET linked_reading_id = ?, updated_at = ?
          WHERE user_id = ? AND id = ?`
       ).run(id, nowIso, userId, appointmentId);
     }
 
-    db.exec("COMMIT");
+    await db.exec("COMMIT");
   } catch (err) {
-    db.exec("ROLLBACK");
+    await db.exec("ROLLBACK");
     throw err;
   }
 
-  const created = getReadingDetail(userId, id, db);
+  const created = await getReadingDetail(userId, id, db);
   if (!created) {
     throw new Error("No se pudo abrir la mesa de lectura.");
   }
   return created;
 }
 
-export function updateReadingSession(
+export async function updateReadingSession(
   userId: string,
   values: UpdateReadingSessionValues,
-  db: DatabaseSync = getDb(userId)
-): ReadingDetail {
-  const existing = getReadingDetail(userId, values.readingId, db);
+  db: AppDatabase = getDb(userId)
+): Promise<ReadingDetail> {
+  const existing = await getReadingDetail(userId, values.readingId, db);
   if (!existing) {
     throw new Error("La lectura solicitada no existe o no tienes acceso.");
   }
@@ -665,9 +667,8 @@ export function updateReadingSession(
     : parsedDate.toISOString();
 
   const consultantId = values.consultantId.trim() || null;
-  const userDeckIdsSet = new Set(
-    listAvailableDecks(userId, db).map((d) => d.id)
-  );
+  const availableDecks = await listAvailableDecks(userId, db);
+  const userDeckIdsSet = new Set(availableDecks.map((d) => d.id));
   const allDeckIds = Array.from(
     new Set(
       values.deckIds
@@ -686,9 +687,9 @@ export function updateReadingSession(
       coordY: p.coordY,
     }));
 
-  db.exec("BEGIN");
+  await db.exec("BEGIN");
   try {
-    db.prepare(
+    await db.prepare(
       `UPDATE readings
        SET consultant_id = ?,
            deck_id = ?,
@@ -727,14 +728,14 @@ export function updateReadingSession(
     );
 
     if (values.status === "completed" && existing.appointmentId) {
-      db.prepare(
+      await db.prepare(
         `UPDATE appointments
          SET status = 'completed', updated_at = ?
          WHERE user_id = ? AND id = ? AND status = 'scheduled'`
       ).run(nowIso, userId, existing.appointmentId);
     }
 
-    syncEntityTags(
+    await syncEntityTags(
       userId,
       "reading",
       values.readingId,
@@ -750,7 +751,7 @@ export function updateReadingSession(
         .map((c) => `${c.positionIndex}:${c.cardId}:${c.personalTakeaway.trim()}`)
     );
 
-    db.prepare("DELETE FROM reading_cards WHERE reading_id = ?").run(
+    await db.prepare("DELETE FROM reading_cards WHERE reading_id = ?").run(
       values.readingId
     );
 
@@ -775,7 +776,7 @@ export function updateReadingSession(
       const shouldSyncNow =
         card.syncToGrimorio && takeawayClean.length > 0 && !alreadySynced;
 
-      insertCard.run(
+      await insertCard.run(
         `rc-${randomUUID()}`,
         values.readingId,
         card.positionIndex,
@@ -791,7 +792,7 @@ export function updateReadingSession(
       );
 
       if (shouldSyncNow) {
-        insertGrimorioLog.run(
+        await insertGrimorioLog.run(
           `log-${randomUUID()}`,
           userId,
           card.cardId,
@@ -804,42 +805,42 @@ export function updateReadingSession(
       }
     }
 
-    db.exec("COMMIT");
+    await db.exec("COMMIT");
   } catch (err) {
-    db.exec("ROLLBACK");
+    await db.exec("ROLLBACK");
     throw err;
   }
 
-  const updated = getReadingDetail(userId, values.readingId, db);
+  const updated = await getReadingDetail(userId, values.readingId, db);
   if (!updated) {
     throw new Error("No se pudo recuperar la lectura tras guardar.");
   }
   return updated;
 }
 
-export function deleteReading(
+export async function deleteReading(
   userId: string,
   readingId: string,
-  db: DatabaseSync = getDb(userId)
-): void {
-  db.exec("BEGIN");
+  db: AppDatabase = getDb(userId)
+): Promise<void> {
+  await db.exec("BEGIN");
   try {
-    db.prepare(
+    await db.prepare(
       `DELETE FROM entity_tags
        WHERE entity_type = 'reading' AND entity_id = ?
          AND tag_id IN (SELECT id FROM tags WHERE user_id = ?)`
     ).run(readingId, userId);
 
-    const res = db
+    const res = await db
       .prepare("DELETE FROM readings WHERE user_id = ? AND id = ?")
       .run(userId, readingId);
 
     if (res.changes === 0) {
       throw new Error("No se encontró la lectura para eliminar.");
     }
-    db.exec("COMMIT");
+    await db.exec("COMMIT");
   } catch (err) {
-    db.exec("ROLLBACK");
+    await db.exec("ROLLBACK");
     throw err;
   }
 }
@@ -867,28 +868,25 @@ interface DeckEventJoinRow {
 }
 
 function hydrateCardIfPresent(
-  cardId: string | null,
-  db: DatabaseSync
+  cardId: string | null
 ): ReturnType<typeof mapCanonicalCardRow> | null {
   if (!cardId) return null;
-  const row = db
-    .prepare("SELECT * FROM cards_catalog WHERE id = ?")
-    .get(cardId) as CanonicalCardRow | undefined;
-  return row ? mapCanonicalCardRow(row) : null;
+  const found = CANONICAL_TAROT_CARDS.find((c) => c.id === cardId);
+  return found ?? null;
 }
 
-export function listDeckEventsForReading(
+export async function listDeckEventsForReading(
   userId: string,
   readingId: string,
-  db: DatabaseSync = getDb(userId)
-): DeckEvent[] {
-  const rows = db
+  db: AppDatabase = getDb(userId)
+): Promise<DeckEvent[]> {
+  const rows = (await db
     .prepare(
       `SELECT * FROM deck_events
        WHERE user_id = ? AND reading_id = ?
        ORDER BY occurred_at ASC, created_at ASC`
     )
-    .all(userId, readingId) as unknown as Array<
+    .all(userId, readingId)) as unknown as Array<
     Omit<
       DeckEventJoinRow,
       | "reading_title"
@@ -900,25 +898,27 @@ export function listDeckEventsForReading(
     >
   >;
 
-  return rows.map((row) => ({
-    id: row.id,
-    userId: row.user_id,
-    readingId: row.reading_id,
-    cardId: row.card_id,
-    card: hydrateCardIfPresent(row.card_id, db),
-    occurredPhase: row.occurred_phase,
-    phenomenonType: row.phenomenon_type,
-    customPhenomenonLabel: row.custom_phenomenon_label,
-    linkedPositionIndex:
-      row.linked_position_index === null
-        ? null
-        : Number(row.linked_position_index),
-    observationDescription: row.observation_description,
-    personalInterpretation: row.personal_interpretation,
-    occurredAt: row.occurred_at,
-    createdAt: row.created_at,
-    tags: getTagsForEntity(userId, "deck_event", row.id, db),
-  }));
+  return Promise.all(
+    rows.map(async (row) => ({
+      id: row.id,
+      userId: row.user_id,
+      readingId: row.reading_id,
+      cardId: row.card_id,
+      card: hydrateCardIfPresent(row.card_id),
+      occurredPhase: row.occurred_phase,
+      phenomenonType: row.phenomenon_type,
+      customPhenomenonLabel: row.custom_phenomenon_label,
+      linkedPositionIndex:
+        row.linked_position_index === null
+          ? null
+          : Number(row.linked_position_index),
+      observationDescription: row.observation_description,
+      personalInterpretation: row.personal_interpretation,
+      occurredAt: row.occurred_at,
+      createdAt: row.created_at,
+      tags: await getTagsForEntity(userId, "deck_event", row.id, db),
+    }))
+  );
 }
 
 export interface ListDeckEventsFilter {
@@ -929,11 +929,11 @@ export interface ListDeckEventsFilter {
   query?: string;
 }
 
-export function listDeckEventsWithContext(
+export async function listDeckEventsWithContext(
   userId: string,
   filters: ListDeckEventsFilter = {},
-  db: DatabaseSync = getDb(userId)
-): DeckEventWithContext[] {
+  db: AppDatabase = getDb(userId)
+): Promise<DeckEventWithContext[]> {
   const conditions: string[] = ["de.user_id = ?"];
   const params: Array<string | number> = [userId];
 
@@ -970,7 +970,7 @@ export function listDeckEventsWithContext(
     params.push(like, like, like);
   }
 
-  const rows = db
+  const rows = (await db
     .prepare(
       `SELECT
          de.*,
@@ -987,44 +987,46 @@ export function listDeckEventsWithContext(
        WHERE ${conditions.join(" AND ")}
        ORDER BY de.occurred_at DESC`
     )
-    .all(...params) as unknown as DeckEventJoinRow[];
+    .all(...params)) as unknown as DeckEventJoinRow[];
 
-  return rows.map((row) => ({
-    id: row.id,
-    userId: row.user_id,
-    readingId: row.reading_id,
-    cardId: row.card_id,
-    card: hydrateCardIfPresent(row.card_id, db),
-    occurredPhase: row.occurred_phase,
-    phenomenonType: row.phenomenon_type,
-    customPhenomenonLabel: row.custom_phenomenon_label,
-    linkedPositionIndex:
-      row.linked_position_index === null
-        ? null
-        : Number(row.linked_position_index),
-    observationDescription: row.observation_description,
-    personalInterpretation: row.personal_interpretation,
-    occurredAt: row.occurred_at,
-    createdAt: row.created_at,
-    tags: getTagsForEntity(userId, "deck_event", row.id, db),
-    readingTitle: row.reading_title,
-    readingPerformedAt: row.reading_performed_at,
-    consultantId: row.consultant_id,
-    consultantDisplayName: row.consultant_alias?.trim()
-      ? row.consultant_alias.trim()
-      : row.consultant_full_name,
-    deckName: row.deck_name,
-  }));
+  return Promise.all(
+    rows.map(async (row) => ({
+      id: row.id,
+      userId: row.user_id,
+      readingId: row.reading_id,
+      cardId: row.card_id,
+      card: hydrateCardIfPresent(row.card_id),
+      occurredPhase: row.occurred_phase,
+      phenomenonType: row.phenomenon_type,
+      customPhenomenonLabel: row.custom_phenomenon_label,
+      linkedPositionIndex:
+        row.linked_position_index === null
+          ? null
+          : Number(row.linked_position_index),
+      observationDescription: row.observation_description,
+      personalInterpretation: row.personal_interpretation,
+      occurredAt: row.occurred_at,
+      createdAt: row.created_at,
+      tags: await getTagsForEntity(userId, "deck_event", row.id, db),
+      readingTitle: row.reading_title,
+      readingPerformedAt: row.reading_performed_at,
+      consultantId: row.consultant_id,
+      consultantDisplayName: row.consultant_alias?.trim()
+        ? row.consultant_alias.trim()
+        : row.consultant_full_name,
+      deckName: row.deck_name,
+    }))
+  );
 }
 
-export function createDeckEvent(
+export async function createDeckEvent(
   userId: string,
   values: DeckEventFormValues,
-  db: DatabaseSync = getDb(userId)
-): DeckEvent {
-  const readingCheck = db
+  db: AppDatabase = getDb(userId)
+): Promise<DeckEvent> {
+  const readingCheck = (await db
     .prepare("SELECT id FROM readings WHERE user_id = ? AND id = ?")
-    .get(userId, values.readingId) as { id: string } | undefined;
+    .get(userId, values.readingId)) as { id: string } | undefined;
 
   if (!readingCheck) {
     throw new Error("La lectura asociada no pertenece a tu espacio.");
@@ -1038,9 +1040,9 @@ export function createDeckEvent(
     : parsedDate.toISOString();
   const cardId = values.cardId.trim() || null;
 
-  db.exec("BEGIN");
+  await db.exec("BEGIN");
   try {
-    db.prepare(
+    await db.prepare(
       `INSERT INTO deck_events (
         id, user_id, reading_id, card_id, occurred_phase, phenomenon_type,
         custom_phenomenon_label, linked_position_index, observation_description,
@@ -1061,19 +1063,19 @@ export function createDeckEvent(
       nowIso
     );
 
-    db.prepare("UPDATE readings SET updated_at = ? WHERE id = ?").run(
+    await db.prepare("UPDATE readings SET updated_at = ? WHERE id = ?").run(
       nowIso,
       values.readingId
     );
 
-    syncEntityTags(userId, "deck_event", id, values.tags, "phenomenon", db);
-    db.exec("COMMIT");
+    await syncEntityTags(userId, "deck_event", id, values.tags, "phenomenon", db);
+    await db.exec("COMMIT");
   } catch (err) {
-    db.exec("ROLLBACK");
+    await db.exec("ROLLBACK");
     throw err;
   }
 
-  const events = listDeckEventsForReading(userId, values.readingId, db);
+  const events = await listDeckEventsForReading(userId, values.readingId, db);
   const created = events.find((e) => e.id === id);
   if (!created) {
     throw new Error("No se pudo recuperar el evento del mazo registrado.");
@@ -1081,43 +1083,43 @@ export function createDeckEvent(
   return created;
 }
 
-export function deleteDeckEvent(
+export async function deleteDeckEvent(
   userId: string,
   eventId: string,
-  db: DatabaseSync = getDb(userId)
-): void {
-  db.exec("BEGIN");
+  db: AppDatabase = getDb(userId)
+): Promise<void> {
+  await db.exec("BEGIN");
   try {
-    db.prepare(
+    await db.prepare(
       `DELETE FROM entity_tags
        WHERE entity_type = 'deck_event' AND entity_id = ?
          AND tag_id IN (SELECT id FROM tags WHERE user_id = ?)`
     ).run(eventId, userId);
 
-    const res = db
+    const res = await db
       .prepare("DELETE FROM deck_events WHERE user_id = ? AND id = ?")
       .run(userId, eventId);
 
     if (res.changes === 0) {
       throw new Error("No se encontró el evento del mazo para eliminar.");
     }
-    db.exec("COMMIT");
+    await db.exec("COMMIT");
   } catch (err) {
-    db.exec("ROLLBACK");
+    await db.exec("ROLLBACK");
     throw err;
   }
 }
 
-export function getDashboardSnapshot(
+export async function getDashboardSnapshot(
   userId: string,
-  db: DatabaseSync = getDb(userId)
-): DashboardSnapshot {
+  db: AppDatabase = getDb(userId)
+): Promise<DashboardSnapshot> {
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
   const endOfToday = new Date();
   endOfToday.setHours(23, 59, 59, 999);
 
-  const upcomingAppointments = listAppointments(
+  const upcomingAppointments = await listAppointments(
     userId,
     {
       status: "scheduled",
@@ -1131,14 +1133,15 @@ export function getDashboardSnapshot(
     (a) => a.scheduledAt <= endOfToday.toISOString()
   );
 
-  const allReadings = listReadings(userId, {}, db);
+  const allReadings = await listReadings(userId, {}, db);
   const draftReadings = allReadings.filter((r) => r.status === "draft");
   const completedReadings = allReadings.filter((r) => r.status === "completed");
-  const activeConsultants = listConsultants(userId, {}, db);
-  const incompleteDecks = listDecks(userId, db).filter((d) => d.needsSetup);
+  const activeConsultants = await listConsultants(userId, {}, db);
+  const allDecks = await listDecks(userId, db);
+  const incompleteDecks = allDecks.filter((d) => d.needsSetup);
   const incompleteConsultants = activeConsultants.filter((c) => c.needsSetup);
 
-  const annotatedRow = db
+  const annotatedRow = (await db
     .prepare(
       `SELECT COUNT(DISTINCT card_id) AS cnt
        FROM card_entries
@@ -1150,13 +1153,14 @@ export function getDashboardSnapshot(
            LENGTH(TRIM(reflections)) > 0
          )`
     )
-    .get(userId) as { cnt: number } | undefined;
+    .get(userId)) as { cnt: number } | undefined;
 
-  const phenomenaCountRow = db
+  const phenomenaCountRow = (await db
     .prepare("SELECT COUNT(*) AS cnt FROM deck_events WHERE user_id = ?")
-    .get(userId) as { cnt: number } | undefined;
+    .get(userId)) as { cnt: number } | undefined;
 
-  const recentPhenomena = listDeckEventsWithContext(userId, {}, db).slice(0, 4);
+  const allPhenomena = await listDeckEventsWithContext(userId, {}, db);
+  const recentPhenomena = allPhenomena.slice(0, 4);
 
   interface RecentLogRow {
     id: string;
@@ -1171,7 +1175,7 @@ export function getDashboardSnapshot(
     created_at: string;
   }
 
-  const recentLogsRows = db
+  const recentLogsRows = (await db
     .prepare(
       `SELECT
          l.*,
@@ -1184,7 +1188,7 @@ export function getDashboardSnapshot(
        ORDER BY l.created_at DESC
        LIMIT 4`
     )
-    .all(userId) as unknown as RecentLogRow[];
+    .all(userId)) as unknown as RecentLogRow[];
 
   return {
     counts: {
@@ -1220,22 +1224,22 @@ export function getDashboardSnapshot(
   };
 }
 
-export function executeGlobalSearch(
+export async function executeGlobalSearch(
   userId: string,
   query: string,
-  db: DatabaseSync = getDb(userId)
-): GlobalSearchResult {
+  db: AppDatabase = getDb(userId)
+): Promise<GlobalSearchResult> {
   const q = query.trim();
   const like = `%${q}%`;
 
-  const cardRows = db
+  const cardRows = (await db
     .prepare(
       `SELECT id, slug, canonical_name, roman_numeral, archetype_note
        FROM cards_catalog
        WHERE canonical_name LIKE ? OR COALESCE(roman_numeral, '') LIKE ? OR traditional_keywords_json LIKE ?
        LIMIT 8`
     )
-    .all(like, like, like) as unknown as Array<{
+    .all(like, like, like)) as unknown as Array<{
     id: string;
     slug: string;
     canonical_name: string;
@@ -1243,8 +1247,8 @@ export function executeGlobalSearch(
     archetype_note: string;
   }>;
 
-  const consultants = listConsultants(userId, { query: q }, db).slice(0, 6);
-  const readings = listReadings(userId, { query: q }, db).slice(0, 6);
+  const consultants = (await listConsultants(userId, { query: q }, db)).slice(0, 6);
+  const readings = (await listReadings(userId, { query: q }, db)).slice(0, 6);
 
   return {
     cards: cardRows.map((c) => ({

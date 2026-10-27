@@ -70,7 +70,7 @@ describe("auth flow test", () => {
     const token = decodeURIComponent(tokenMatch![1]);
 
     const { getUserFromToken } = await import("@/server/session");
-    const restoredUser = getUserFromToken(token);
+    const restoredUser = await getUserFromToken(token);
     expect(restoredUser).not.toBeNull();
     expect(restoredUser?.email).toBe(email);
     expect(restoredUser?.name).toBe("Valeria Tarot");
@@ -109,41 +109,41 @@ describe("auth flow test", () => {
     const { listReadings, getDashboardSnapshot } = await import("@/repositories/readings-repository");
 
     // 1. In-memory demo data is available and rich for the user to try the app
-    const consultants = listConsultants(DEMO_USER_ID);
+    const consultants = await listConsultants(DEMO_USER_ID);
     expect(consultants.length).toBeGreaterThanOrEqual(3);
     const consultantNames = consultants.map((c) => c.fullName);
     expect(consultantNames).toContain("Mariana Echeverría");
     expect(consultantNames).toContain("Julián Santamaría");
 
-    const appointments = listAppointments(DEMO_USER_ID);
+    const appointments = await listAppointments(DEMO_USER_ID);
     expect(appointments.length).toBeGreaterThanOrEqual(3);
 
-    const readings = listReadings(DEMO_USER_ID);
+    const readings = await listReadings(DEMO_USER_ID);
     expect(readings.length).toBeGreaterThanOrEqual(2);
 
-    const snapshot = getDashboardSnapshot(DEMO_USER_ID);
+    const snapshot = await getDashboardSnapshot(DEMO_USER_ID);
     expect(snapshot.counts.completedReadings).toBeGreaterThanOrEqual(2);
 
     // 2. Persistent SQLite DB on disk has ZERO demo records
     const diskDb = getDb();
-    const demoUserInDisk = diskDb
+    const demoUserInDisk = await diskDb
       .prepare("SELECT id FROM users WHERE id = ? OR is_demo = 1")
       .get(DEMO_USER_ID);
     expect(demoUserInDisk).toBeUndefined();
 
-    const demoConsultantsInDisk = diskDb
+    const demoConsultantsInDisk = (await diskDb
       .prepare("SELECT count(*) as c FROM consultants WHERE user_id = ?")
-      .get(DEMO_USER_ID) as { c: number };
+      .get(DEMO_USER_ID)) as { c: number };
     expect(demoConsultantsInDisk.c).toBe(0);
 
-    const demoReadingsInDisk = diskDb
+    const demoReadingsInDisk = (await diskDb
       .prepare("SELECT count(*) as c FROM readings WHERE user_id = ?")
-      .get(DEMO_USER_ID) as { c: number };
+      .get(DEMO_USER_ID)) as { c: number };
     expect(demoReadingsInDisk.c).toBe(0);
 
-    const demoAppointmentsInDisk = diskDb
+    const demoAppointmentsInDisk = (await diskDb
       .prepare("SELECT count(*) as c FROM appointments WHERE user_id = ?")
-      .get(DEMO_USER_ID) as { c: number };
+      .get(DEMO_USER_ID)) as { c: number };
     expect(demoAppointmentsInDisk.c).toBe(0);
   });
 });

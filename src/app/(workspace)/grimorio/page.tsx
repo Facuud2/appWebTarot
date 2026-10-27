@@ -19,9 +19,9 @@ export default async function GrimorioPage({
   const user = await requireUser();
   const params = await searchParams;
 
-  const cards = listGrimorioCards(user.id);
-  const decks = listDecks(user.id);
-  const spreads = listSpreadTemplates(user.id);
+  const cards = await listGrimorioCards(user.id);
+  const decks = await listDecks(user.id);
+  const spreads = await listSpreadTemplates(user.id);
 
   const defaultTab = params.editDeckId
     ? "mazos"

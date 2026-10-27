@@ -1,14 +1,13 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import { getTagsForEntity, syncEntityTags } from "@/repositories/tags-repository";
 import type {
   DeckFormValues,
   PersonalCardEntryValues,
   SpreadTemplateFormValues,
 } from "@/schemas/domain";
-import { getDb } from "@/server/db";
+import { getDb, type AppDatabase } from "@/server/db";
 import type {
   ArcanaType,
   CanonicalCard,
@@ -26,7 +25,7 @@ import type {
   TarotSuit,
 } from "@/types/domain";
 import { listDeckEventsWithContext } from "@/repositories/readings-repository";
-import { BUILTIN_DECKS } from "@/lib/tarot-catalog";
+import { BUILTIN_DECKS, CANONICAL_TAROT_CARDS } from "@/lib/tarot-catalog";
 
 export interface CanonicalCardRow {
   id: string;
@@ -90,11 +89,12 @@ interface PersonalCardEntryRow {
   updated_at: string;
 }
 
-function mapPersonalEntryRow(
+async function mapPersonalEntryRow(
   row: PersonalCardEntryRow,
   userId: string,
-  db: DatabaseSync
-): PersonalCardEntry {
+  db: AppDatabase
+): Promise<PersonalCardEntry> {
+  const tags = await getTagsForEntity(userId, "card_entry", row.id, db);
   return {
     id: row.id,
     userId: row.user_id,
@@ -106,7 +106,7 @@ function mapPersonalEntryRow(
     symbolsAssociations: row.symbols_associations,
     keywords: safeParseStringArray(row.keywords_json),
     reflections: row.reflections,
-    tags: getTagsForEntity(userId, "card_entry", row.id, db),
+    tags,
     updatedAt: row.updated_at,
   };
 }
@@ -114,45 +114,26 @@ function mapPersonalEntryRow(
 export function listCanonicalCards(
   optionsOrDb?:
     | { tradition?: DeckTradition | string; traditionIn?: string[] }
-    | DatabaseSync,
-  maybeDb?: DatabaseSync
+    | AppDatabase,
+  _maybeDb?: AppDatabase
 ): CanonicalCard[] {
   let options:
     | { tradition?: DeckTradition | string; traditionIn?: string[] }
     | undefined;
-  let db: DatabaseSync;
 
-  if (optionsOrDb && "prepare" in optionsOrDb) {
-    db = optionsOrDb;
+  if (optionsOrDb && !("tradition" in optionsOrDb || "traditionIn" in optionsOrDb)) {
     options = undefined;
   } else {
-    options = optionsOrDb;
-    db = maybeDb ?? getDb();
+    options = optionsOrDb as { tradition?: DeckTradition | string; traditionIn?: string[] } | undefined;
   }
 
-  let sql = `SELECT * FROM cards_catalog`;
-  const params: string[] = [];
-
+  let cards = CANONICAL_TAROT_CARDS;
   if (options?.tradition) {
-    sql += ` WHERE deck_tradition = ?`;
-    params.push(options.tradition);
+    cards = cards.filter((c) => c.deckTradition === options.tradition);
   } else if (options?.traditionIn && options.traditionIn.length > 0) {
-    const placeholders = options.traditionIn.map(() => "?").join(", ");
-    sql += ` WHERE deck_tradition IN (${placeholders})`;
-    params.push(...options.traditionIn);
+    cards = cards.filter((c) => options.traditionIn!.includes(c.deckTradition));
   }
-
-  sql += ` ORDER BY CASE 
-             WHEN arcana = 'major' THEN 0 
-             WHEN arcana = 'minor' THEN 1 
-             WHEN arcana = 'lenormand' THEN 2 
-             ELSE 3 
-           END ASC,
-           COALESCE(suit, '') ASC,
-           rank_number ASC`;
-
-  const rows = db.prepare(sql).all(...params) as unknown as CanonicalCardRow[];
-  return rows.map(mapCanonicalCardRow);
+  return cards;
 }
 
 export interface ListGrimorioOptions {
@@ -164,11 +145,11 @@ export interface ListGrimorioOptions {
   tag?: string;
 }
 
-export function listGrimorioCards(
+export async function listGrimorioCards(
   userId: string,
   options: ListGrimorioOptions = {},
-  db: DatabaseSync = getDb(userId)
-): GrimorioCardSummary[] {
+  db: AppDatabase = getDb(userId)
+): Promise<GrimorioCardSummary[]> {
   interface SummaryJoinRow extends CanonicalCardRow {
     ce_id: string | null;
     ce_user_id: string | null;
@@ -185,7 +166,7 @@ export function listGrimorioCards(
     last_appeared_at: string | null;
   }
 
-  const rows = db
+  const rows = (await db
     .prepare(
       `SELECT
          cc.*,
@@ -226,7 +207,7 @@ export function listGrimorioCards(
                 END ASC,
                 cc.rank_number ASC`
     )
-    .all(userId, userId, userId, userId) as unknown as SummaryJoinRow[];
+    .all(userId, userId, userId, userId)) as unknown as SummaryJoinRow[];
 
   const normalizedQuery = options.query?.trim().toLowerCase() ?? "";
   const normalizedTag = options.tag?.trim().toLowerCase() ?? "";
@@ -244,7 +225,7 @@ export function listGrimorioCards(
     const card = mapCanonicalCardRow(row);
     const personalEntry: PersonalCardEntry | null =
       row.ce_id && row.ce_user_id
-        ? mapPersonalEntryRow(
+        ? await mapPersonalEntryRow(
             {
               id: row.ce_id,
               user_id: row.ce_user_id,
@@ -315,25 +296,25 @@ export function listGrimorioCards(
   return summaries;
 }
 
-export function getGrimorioCardBySlug(
+export async function getGrimorioCardBySlug(
   userId: string,
   slug: string,
-  db: DatabaseSync = getDb(userId)
-): GrimorioCardDetail | null {
-  const cardRow = db
+  db: AppDatabase = getDb(userId)
+): Promise<GrimorioCardDetail | null> {
+  const cardRow = (await db
     .prepare("SELECT * FROM cards_catalog WHERE slug = ?")
-    .get(slug) as CanonicalCardRow | undefined;
+    .get(slug)) as CanonicalCardRow | undefined;
 
   if (!cardRow) return null;
   const card = mapCanonicalCardRow(cardRow);
 
-  const personalRows = db
+  const personalRows = (await db
     .prepare(
       `SELECT * FROM card_entries
        WHERE user_id = ? AND card_id = ?
        ORDER BY CASE WHEN deck_id IS NULL THEN 0 ELSE 1 END ASC, updated_at DESC`
     )
-    .all(userId, card.id) as unknown as PersonalCardEntryRow[];
+    .all(userId, card.id)) as unknown as PersonalCardEntryRow[];
 
   interface LogJoinRow {
     id: string;
@@ -348,7 +329,7 @@ export function getGrimorioCardBySlug(
     created_at: string;
   }
 
-  const logRows = db
+  const logRows = (await db
     .prepare(
       `SELECT
          l.*,
@@ -360,7 +341,7 @@ export function getGrimorioCardBySlug(
        WHERE l.user_id = ? AND l.card_id = ?
        ORDER BY l.created_at DESC`
     )
-    .all(userId, card.id) as unknown as LogJoinRow[];
+    .all(userId, card.id)) as unknown as LogJoinRow[];
 
   interface AppearanceRow {
     reading_card_id: string;
@@ -380,7 +361,7 @@ export function getGrimorioCardBySlug(
     personal_takeaway: string;
   }
 
-  const appearanceRows = db
+  const appearanceRows = (await db
     .prepare(
       `SELECT
          rc.id AS reading_card_id,
@@ -405,19 +386,21 @@ export function getGrimorioCardBySlug(
        WHERE r.user_id = ? AND rc.card_id = ?
        ORDER BY r.performed_at DESC`
     )
-    .all(userId, card.id) as unknown as AppearanceRow[];
+    .all(userId, card.id)) as unknown as AppearanceRow[];
 
-  const phenomena = listDeckEventsWithContext(
+  const phenomena = await listDeckEventsWithContext(
     userId,
     { cardId: card.id },
     db
   );
 
+  const personalEntries = await Promise.all(
+    personalRows.map((pr) => mapPersonalEntryRow(pr, userId, db))
+  );
+
   return {
     card,
-    personalEntries: personalRows.map((pr) =>
-      mapPersonalEntryRow(pr, userId, db)
-    ),
+    personalEntries,
     evolutionLog: logRows.map(
       (lr): CardInterpretationLog => ({
         id: lr.id,
@@ -456,14 +439,14 @@ export function getGrimorioCardBySlug(
   };
 }
 
-export function upsertPersonalCardEntry(
+export async function upsertPersonalCardEntry(
   userId: string,
   values: PersonalCardEntryValues,
-  db: DatabaseSync = getDb(userId)
-): PersonalCardEntry {
-  const cardExists = db
+  db: AppDatabase = getDb(userId)
+): Promise<PersonalCardEntry> {
+  const cardExists = (await db
     .prepare("SELECT id FROM cards_catalog WHERE id = ?")
-    .get(values.cardId) as { id: string } | undefined;
+    .get(values.cardId)) as { id: string } | undefined;
 
   if (!cardExists) {
     throw new Error("La carta seleccionada no existe en el catálogo.");
@@ -471,9 +454,9 @@ export function upsertPersonalCardEntry(
 
   const normalizedDeckId = values.deckId.trim() ? values.deckId.trim() : null;
   if (normalizedDeckId) {
-    const deckCheck = db
+    const deckCheck = (await db
       .prepare("SELECT id FROM decks WHERE user_id = ? AND id = ?")
-      .get(userId, normalizedDeckId) as { id: string } | undefined;
+      .get(userId, normalizedDeckId)) as { id: string } | undefined;
     if (!deckCheck) {
       throw new Error("El mazo seleccionado no pertenece a tu espacio.");
     }
@@ -482,25 +465,25 @@ export function upsertPersonalCardEntry(
   const nowIso = new Date().toISOString();
   let entryId = "";
 
-  db.exec("BEGIN");
+  await db.exec("BEGIN");
   try {
     const existing = normalizedDeckId
-      ? (db
+      ? ((await db
           .prepare(
             "SELECT id FROM card_entries WHERE user_id = ? AND card_id = ? AND deck_id = ?"
           )
-          .get(userId, values.cardId, normalizedDeckId) as
+          .get(userId, values.cardId, normalizedDeckId)) as
           | { id: string }
           | undefined)
-      : (db
+      : ((await db
           .prepare(
             "SELECT id FROM card_entries WHERE user_id = ? AND card_id = ? AND deck_id IS NULL"
           )
-          .get(userId, values.cardId) as { id: string } | undefined);
+          .get(userId, values.cardId)) as { id: string } | undefined);
 
     if (existing) {
       entryId = existing.id;
-      db.prepare(
+      await db.prepare(
         `UPDATE card_entries
          SET custom_image_url = ?,
              personal_meaning = ?,
@@ -523,7 +506,7 @@ export function upsertPersonalCardEntry(
       );
     } else {
       entryId = `ce-${randomUUID()}`;
-      db.prepare(
+      await db.prepare(
         `INSERT INTO card_entries (
           id, user_id, card_id, deck_id, custom_image_url, personal_meaning,
           reversed_meaning, symbols_associations, keywords_json, reflections, updated_at
@@ -543,10 +526,10 @@ export function upsertPersonalCardEntry(
       );
     }
 
-    syncEntityTags(userId, "card_entry", entryId, values.tags, "general", db);
+    await syncEntityTags(userId, "card_entry", entryId, values.tags, "general", db);
 
     if (values.logEvolutionEntry && values.personalMeaning.trim().length > 0) {
-      db.prepare(
+      await db.prepare(
         `INSERT INTO card_interpretation_logs (
           id, user_id, card_id, deck_id, reading_id, note_title, content, created_at
         ) VALUES (?, ?, ?, ?, NULL, ?, ?, ?)`
@@ -561,15 +544,15 @@ export function upsertPersonalCardEntry(
       );
     }
 
-    db.exec("COMMIT");
+    await db.exec("COMMIT");
   } catch (err) {
-    db.exec("ROLLBACK");
+    await db.exec("ROLLBACK");
     throw err;
   }
 
-  const savedRow = db
+  const savedRow = (await db
     .prepare("SELECT * FROM card_entries WHERE id = ? AND user_id = ?")
-    .get(entryId, userId) as PersonalCardEntryRow | undefined;
+    .get(entryId, userId)) as PersonalCardEntryRow | undefined;
 
   if (!savedRow) {
     throw new Error("No se pudo recuperar la ficha personal de la carta.");
@@ -625,11 +608,11 @@ export function getBuiltinDecks(): Deck[] {
   }));
 }
 
-export function listAvailableDecks(
+export async function listAvailableDecks(
   userId: string,
-  db: DatabaseSync = getDb(userId)
-): Deck[] {
-  const userDecks = listDecks(userId, db);
+  db: AppDatabase = getDb(userId)
+): Promise<Deck[]> {
+  const userDecks = await listDecks(userId, db);
   const builtinDecks = getBuiltinDecks();
 
   const userDeckIds = new Set(userDecks.map((d) => d.id));
@@ -680,10 +663,10 @@ export function listAvailableDecks(
   return uniqueDecks;
 }
 
-export function ensureUserBuiltinDecks(
+export async function ensureUserBuiltinDecks(
   userId: string,
-  db: DatabaseSync = getDb(userId)
-): void {
+  db: AppDatabase = getDb(userId)
+): Promise<void> {
   const checkDeck = db.prepare(
     "SELECT id FROM decks WHERE user_id = ? AND tradition = ?"
   );
@@ -695,9 +678,9 @@ export function ensureUserBuiltinDecks(
 
   const nowIso = new Date().toISOString();
   for (const deck of BUILTIN_DECKS) {
-    const existing = checkDeck.get(userId, deck.tradition);
+    const existing = await checkDeck.get(userId, deck.tradition);
     if (!existing) {
-      insertDeck.run(
+      await insertDeck.run(
         `deck-${deck.tradition}-${userId}`,
         userId,
         deck.name,
@@ -712,8 +695,11 @@ export function ensureUserBuiltinDecks(
   }
 }
 
-export function listDecks(userId: string, db: DatabaseSync = getDb(userId)): Deck[] {
-  const rows = db
+export async function listDecks(
+  userId: string,
+  db: AppDatabase = getDb(userId)
+): Promise<Deck[]> {
+  const rows = (await db
     .prepare(
       `SELECT
          d.*,
@@ -731,27 +717,27 @@ export function listDecks(userId: string, db: DatabaseSync = getDb(userId)): Dec
        WHERE d.user_id = ?
        ORDER BY d.needs_setup DESC, d.is_default DESC, d.name COLLATE NOCASE ASC`
     )
-    .all(userId) as unknown as DeckRow[];
+    .all(userId)) as unknown as DeckRow[];
 
   return rows.map(mapDeckRow);
 }
 
-export function createDeck(
+export async function createDeck(
   userId: string,
   values: DeckFormValues,
-  db: DatabaseSync = getDb(userId)
-): Deck {
+  db: AppDatabase = getDb(userId)
+): Promise<Deck> {
   const id = `deck-${randomUUID()}`;
   const nowIso = new Date().toISOString();
 
-  db.exec("BEGIN");
+  await db.exec("BEGIN");
   try {
     if (values.isDefault) {
-      db.prepare("UPDATE decks SET is_default = 0 WHERE user_id = ?").run(
+      await db.prepare("UPDATE decks SET is_default = 0 WHERE user_id = ?").run(
         userId
       );
     }
-    db.prepare(
+    await db.prepare(
       `INSERT INTO decks (
         id, user_id, name, tradition, author, card_count, description, is_default, needs_setup, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
@@ -766,23 +752,23 @@ export function createDeck(
       values.isDefault ? 1 : 0,
       nowIso
     );
-    db.exec("COMMIT");
+    await db.exec("COMMIT");
   } catch (err) {
-    db.exec("ROLLBACK");
+    await db.exec("ROLLBACK");
     throw err;
   }
 
-  const decks = listDecks(userId, db);
+  const decks = await listDecks(userId, db);
   const created = decks.find((d) => d.id === id);
   if (!created) throw new Error("No se pudo recuperar el mazo creado.");
   return created;
 }
 
-export function createQuickDeck(
+export async function createQuickDeck(
   userId: string,
   name: string,
-  db: DatabaseSync = getDb(userId)
-): Deck {
+  db: AppDatabase = getDb(userId)
+): Promise<Deck> {
   const cleanName = name.trim();
   if (!cleanName) {
     throw new Error("Indica un nombre para registrar el mazo.");
@@ -791,41 +777,41 @@ export function createQuickDeck(
   const id = `deck-${randomUUID()}`;
   const nowIso = new Date().toISOString();
 
-  db.prepare(
+  await db.prepare(
     `INSERT INTO decks (
       id, user_id, name, tradition, author, card_count, description, is_default, needs_setup, created_at
     ) VALUES (?, ?, ?, 'other', NULL, 78, '', 0, 1, ?)`
   ).run(id, userId, cleanName, nowIso);
 
-  const decks = listDecks(userId, db);
+  const decks = await listDecks(userId, db);
   const created = decks.find((d) => d.id === id);
   if (!created) throw new Error("No se pudo recuperar el mazo registrado.");
   return created;
 }
 
-export function updateDeck(
+export async function updateDeck(
   userId: string,
   deckId: string,
   values: DeckFormValues,
-  db: DatabaseSync = getDb(userId)
-): Deck {
-  const existing = db
+  db: AppDatabase = getDb(userId)
+): Promise<Deck> {
+  const existing = (await db
     .prepare("SELECT id FROM decks WHERE user_id = ? AND id = ?")
-    .get(userId, deckId) as { id: string } | undefined;
+    .get(userId, deckId)) as { id: string } | undefined;
 
   if (!existing) {
     throw new Error("No se encontró el mazo para actualizar.");
   }
 
-  db.exec("BEGIN");
+  await db.exec("BEGIN");
   try {
     if (values.isDefault) {
-      db.prepare("UPDATE decks SET is_default = 0 WHERE user_id = ?").run(
+      await db.prepare("UPDATE decks SET is_default = 0 WHERE user_id = ?").run(
         userId
       );
     }
 
-    db.prepare(
+    await db.prepare(
       `UPDATE decks
        SET name = ?,
            tradition = ?,
@@ -845,24 +831,24 @@ export function updateDeck(
       userId,
       deckId
     );
-    db.exec("COMMIT");
+    await db.exec("COMMIT");
   } catch (err) {
-    db.exec("ROLLBACK");
+    await db.exec("ROLLBACK");
     throw err;
   }
 
-  const decks = listDecks(userId, db);
+  const decks = await listDecks(userId, db);
   const updated = decks.find((d) => d.id === deckId);
   if (!updated) throw new Error("No se pudo recuperar el mazo actualizado.");
   return updated;
 }
 
-export function deleteDeck(
+export async function deleteDeck(
   userId: string,
   deckId: string,
-  db: DatabaseSync = getDb(userId)
-): void {
-  const res = db
+  db: AppDatabase = getDb(userId)
+): Promise<void> {
+  const res = await db
     .prepare("DELETE FROM decks WHERE user_id = ? AND id = ?")
     .run(userId, deckId);
   if (res.changes === 0) {
@@ -917,30 +903,30 @@ function mapSpreadRow(row: SpreadRow): SpreadTemplate {
   };
 }
 
-export function listSpreadTemplates(
+export async function listSpreadTemplates(
   userId: string,
-  db: DatabaseSync = getDb(userId)
-): SpreadTemplate[] {
-  const rows = db
+  db: AppDatabase = getDb(userId)
+): Promise<SpreadTemplate[]> {
+  const rows = (await db
     .prepare(
       `SELECT * FROM spread_templates
        WHERE is_builtin = 1 OR user_id = ?
        ORDER BY is_builtin DESC, name COLLATE NOCASE ASC`
     )
-    .all(userId) as unknown as SpreadRow[];
+    .all(userId)) as unknown as SpreadRow[];
 
   return rows.map(mapSpreadRow);
 }
 
-export function createSpreadTemplate(
+export async function createSpreadTemplate(
   userId: string,
   values: SpreadTemplateFormValues,
-  db: DatabaseSync = getDb(userId)
-): SpreadTemplate {
+  db: AppDatabase = getDb(userId)
+): Promise<SpreadTemplate> {
   const id = `spread-${randomUUID()}`;
   const nowIso = new Date().toISOString();
 
-  db.prepare(
+  await db.prepare(
     `INSERT INTO spread_templates (
       id, user_id, name, category, description, positions_json, is_builtin, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, 0, ?)`
@@ -954,20 +940,20 @@ export function createSpreadTemplate(
     nowIso
   );
 
-  const row = db
+  const row = (await db
     .prepare("SELECT * FROM spread_templates WHERE id = ? AND user_id = ?")
-    .get(id, userId) as SpreadRow | undefined;
+    .get(id, userId)) as SpreadRow | undefined;
 
   if (!row) throw new Error("No se pudo recuperar la plantilla creada.");
   return mapSpreadRow(row);
 }
 
-export function deleteSpreadTemplate(
+export async function deleteSpreadTemplate(
   userId: string,
   spreadId: string,
-  db: DatabaseSync = getDb(userId)
-): void {
-  const res = db
+  db: AppDatabase = getDb(userId)
+): Promise<void> {
+  const res = await db
     .prepare(
       "DELETE FROM spread_templates WHERE user_id = ? AND id = ? AND is_builtin = 0"
     )

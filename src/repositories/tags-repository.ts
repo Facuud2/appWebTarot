@@ -1,8 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
-import { getDb } from "@/server/db";
+import { getDb, type AppDatabase } from "@/server/db";
 import type { Tag, TagCategory, TaggableEntityType } from "@/types/domain";
 
 interface TagRow {
@@ -23,39 +22,39 @@ export function mapTagRow(row: TagRow): Tag {
   };
 }
 
-export function listUserTags(
+export async function listUserTags(
   userId: string,
   category?: TagCategory,
-  db: DatabaseSync = getDb(userId)
-): Tag[] {
+  db: AppDatabase = getDb(userId)
+): Promise<Tag[]> {
   const rows = category
-    ? (db
+    ? ((await db
         .prepare(
           `SELECT id, user_id, name, category, created_at
            FROM tags
            WHERE user_id = ? AND category = ?
            ORDER BY name COLLATE NOCASE ASC`
         )
-        .all(userId, category) as unknown as TagRow[])
-    : (db
+        .all(userId, category)) as unknown as TagRow[])
+    : ((await db
         .prepare(
           `SELECT id, user_id, name, category, created_at
            FROM tags
            WHERE user_id = ?
            ORDER BY name COLLATE NOCASE ASC`
         )
-        .all(userId) as unknown as TagRow[]);
+        .all(userId)) as unknown as TagRow[]);
 
   return rows.map(mapTagRow);
 }
 
-export function getTagsForEntity(
+export async function getTagsForEntity(
   userId: string,
   entityType: TaggableEntityType,
   entityId: string,
-  db: DatabaseSync = getDb(userId)
-): Tag[] {
-  const rows = db
+  db: AppDatabase = getDb(userId)
+): Promise<Tag[]> {
+  const rows = (await db
     .prepare(
       `SELECT t.id, t.user_id, t.name, t.category, t.created_at
        FROM entity_tags et
@@ -63,20 +62,20 @@ export function getTagsForEntity(
        WHERE t.user_id = ? AND et.entity_type = ? AND et.entity_id = ?
        ORDER BY t.name COLLATE NOCASE ASC`
     )
-    .all(userId, entityType, entityId) as unknown as TagRow[];
+    .all(userId, entityType, entityId)) as unknown as TagRow[];
 
   return rows.map(mapTagRow);
 }
 
-export function syncEntityTags(
+export async function syncEntityTags(
   userId: string,
   entityType: TaggableEntityType,
   entityId: string,
   tagNames: string[],
   defaultCategory: TagCategory,
-  db: DatabaseSync = getDb(userId)
-): Tag[] {
-  db.prepare(
+  db: AppDatabase = getDb(userId)
+): Promise<Tag[]> {
+  await db.prepare(
     `DELETE FROM entity_tags
      WHERE entity_type = ? AND entity_id = ?
        AND tag_id IN (SELECT id FROM tags WHERE user_id = ?)`
@@ -107,10 +106,10 @@ export function syncEntityTags(
 
   const result: Tag[] = [];
   for (const [normalized, display] of uniqueCleaned) {
-    let existing = findTag.get(userId, normalized) as TagRow | undefined;
+    let existing = (await findTag.get(userId, normalized)) as TagRow | undefined;
     if (!existing) {
       const id = `tag-${randomUUID()}`;
-      insertTag.run(id, userId, display, normalized, defaultCategory, nowIso);
+      await insertTag.run(id, userId, display, normalized, defaultCategory, nowIso);
       existing = {
         id,
         user_id: userId,
@@ -119,7 +118,7 @@ export function syncEntityTags(
         created_at: nowIso,
       };
     }
-    insertLink.run(existing.id, entityType, entityId);
+    await insertLink.run(existing.id, entityType, entityId);
     result.push(mapTagRow(existing));
   }
 

@@ -1,7 +1,6 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import { listAppointments } from "@/repositories/appointments-repository";
 import { listConsultants } from "@/repositories/consultants-repository";
 import {
@@ -17,7 +16,7 @@ import type {
 } from "@/schemas/domain";
 import { workspaceBackupSchema } from "@/schemas/domain";
 import { hashPassword, verifyPassword } from "@/server/crypto-auth";
-import { DEMO_USER_ID, getDb, getDemoDb, seedDemoWorkspaceIfMissing } from "@/server/db";
+import { DEMO_USER_ID, getDb, getDemoDb, seedDemoWorkspaceIfMissing, type AppDatabase } from "@/server/db";
 import { defaultOnboardingState, mapUserRow, parseUserPreferences } from "@/server/session";
 import type { User, UserOnboardingState, UserPreferences, WorkspaceBackupPayload } from "@/types/domain";
 
@@ -32,14 +31,14 @@ interface AuthUserRow {
   created_at: string;
 }
 
-export function authenticateUser(
+export async function authenticateUser(
   input: LoginInput,
-  db: DatabaseSync = getDb()
-): User | null {
+  db: AppDatabase = getDb()
+): Promise<User | null> {
   const normalizedEmail = input.email.trim().toLowerCase();
-  const row = db
+  const row = (await db
     .prepare("SELECT * FROM users WHERE LOWER(email) = ?")
-    .get(normalizedEmail) as AuthUserRow | undefined;
+    .get(normalizedEmail)) as AuthUserRow | undefined;
 
   if (!row) return null;
   if (!verifyPassword(input.password, row.password_hash)) {
@@ -49,16 +48,16 @@ export function authenticateUser(
   return mapUserRow(row);
 }
 
-export function getDemoUser(db: DatabaseSync = getDemoDb()): User {
-  let row = db
+export async function getDemoUser(db: AppDatabase = getDemoDb()): Promise<User> {
+  let row = (await db
     .prepare("SELECT * FROM users WHERE id = ?")
-    .get(DEMO_USER_ID) as AuthUserRow | undefined;
+    .get(DEMO_USER_ID)) as AuthUserRow | undefined;
 
   if (!row) {
-    seedDemoWorkspaceIfMissing(db);
-    row = db
+    await seedDemoWorkspaceIfMissing(db);
+    row = (await db
       .prepare("SELECT * FROM users WHERE id = ?")
-      .get(DEMO_USER_ID) as AuthUserRow | undefined;
+      .get(DEMO_USER_ID)) as AuthUserRow | undefined;
   }
 
   if (!row) {
@@ -67,14 +66,14 @@ export function getDemoUser(db: DatabaseSync = getDemoDb()): User {
   return mapUserRow(row);
 }
 
-export function registerNewUser(
+export async function registerNewUser(
   input: RegisterInput,
-  db: DatabaseSync = getDb()
-): User {
+  db: AppDatabase = getDb()
+): Promise<User> {
   const normalizedEmail = input.email.trim().toLowerCase();
-  const existing = db
+  const existing = (await db
     .prepare("SELECT id FROM users WHERE LOWER(email) = ?")
-    .get(normalizedEmail) as { id: string } | undefined;
+    .get(normalizedEmail)) as { id: string } | undefined;
 
   if (existing) {
     throw new Error("Ya existe una cuenta registrada con ese correo electrónico.");
@@ -96,9 +95,9 @@ export function registerNewUser(
     onboarding: defaultOnboardingState(false),
   };
 
-  db.exec("BEGIN");
+  await db.exec("BEGIN");
   try {
-    db.prepare(
+    await db.prepare(
       `INSERT INTO users (id, email, name, workspace_name, password_hash, is_demo, preferences_json, created_at)
        VALUES (?, ?, ?, ?, ?, 0, ?, ?)`
     ).run(
@@ -111,15 +110,15 @@ export function registerNewUser(
       nowIso
     );
 
-    db.exec("COMMIT");
+    await db.exec("COMMIT");
   } catch (err) {
-    db.exec("ROLLBACK");
+    await db.exec("ROLLBACK");
     throw err;
   }
 
-  const row = db
+  const row = (await db
     .prepare("SELECT * FROM users WHERE id = ?")
-    .get(userId) as AuthUserRow | undefined;
+    .get(userId)) as AuthUserRow | undefined;
 
   if (!row) {
     throw new Error("No se pudo recuperar el usuario recién creado.");
@@ -127,11 +126,11 @@ export function registerNewUser(
   return mapUserRow(row);
 }
 
-export function updateUserWorkspaceProfile(
+export async function updateUserWorkspaceProfile(
   userId: string,
   values: WorkspaceProfileValues,
-  db: DatabaseSync = getDb(userId)
-): User {
+  db: AppDatabase = getDb(userId)
+): Promise<User> {
   const prefs = {
     defaultDeckId: values.defaultDeckId.trim() || null,
     defaultSpreadId: values.defaultSpreadId.trim() || null,
@@ -139,7 +138,7 @@ export function updateUserWorkspaceProfile(
     autosaveReadings: values.autosaveReadings,
   };
 
-  const res = db
+  const res = await db
     .prepare(
       `UPDATE users
        SET name = ?, workspace_name = ?, preferences_json = ?
@@ -156,23 +155,23 @@ export function updateUserWorkspaceProfile(
     throw new Error("No se encontró el perfil de usuario.");
   }
 
-  const row = db
+  const row = (await db
     .prepare("SELECT * FROM users WHERE id = ?")
-    .get(userId) as AuthUserRow | undefined;
+    .get(userId)) as AuthUserRow | undefined;
   if (!row) {
     throw new Error("No se pudo leer el perfil actualizado.");
   }
   return mapUserRow(row);
 }
 
-export function saveUserOnboardingProgress(
+export async function saveUserOnboardingProgress(
   userId: string,
   progress: Partial<UserOnboardingState>,
-  db: DatabaseSync = getDb(userId)
-): User {
-  const row = db
+  db: AppDatabase = getDb(userId)
+): Promise<User> {
+  const row = (await db
     .prepare("SELECT * FROM users WHERE id = ?")
-    .get(userId) as AuthUserRow | undefined;
+    .get(userId)) as AuthUserRow | undefined;
 
   if (!row) {
     throw new Error("No se encontró el usuario para guardar el progreso.");
@@ -198,13 +197,13 @@ export function saveUserOnboardingProgress(
     updatedPrefs.defaultDeckId = progress.selectedDeckId;
   }
 
-  db.prepare(
+  await db.prepare(
     "UPDATE users SET preferences_json = ? WHERE id = ?"
   ).run(JSON.stringify(updatedPrefs), userId);
 
-  const updatedRow = db
+  const updatedRow = (await db
     .prepare("SELECT * FROM users WHERE id = ?")
-    .get(userId) as AuthUserRow | undefined;
+    .get(userId)) as AuthUserRow | undefined;
 
   if (!updatedRow) {
     throw new Error("No se pudo leer el usuario actualizado.");
@@ -213,10 +212,10 @@ export function saveUserOnboardingProgress(
   return mapUserRow(updatedRow);
 }
 
-export function completeUserOnboarding(
+export async function completeUserOnboarding(
   userId: string,
-  db: DatabaseSync = getDb(userId)
-): User {
+  db: AppDatabase = getDb(userId)
+): Promise<User> {
   return saveUserOnboardingProgress(
     userId,
     {
@@ -228,10 +227,10 @@ export function completeUserOnboarding(
   );
 }
 
-export function resetUserOnboarding(
+export async function resetUserOnboarding(
   userId: string,
-  db: DatabaseSync = getDb(userId)
-): User {
+  db: AppDatabase = getDb(userId)
+): Promise<User> {
   return saveUserOnboardingProgress(
     userId,
     {
@@ -243,31 +242,33 @@ export function resetUserOnboarding(
   );
 }
 
-export function exportWorkspaceBackup(
+export async function exportWorkspaceBackup(
   userId: string,
-  db: DatabaseSync = getDb(userId)
-): WorkspaceBackupPayload {
-  const userRow = db
+  db: AppDatabase = getDb(userId)
+): Promise<WorkspaceBackupPayload> {
+  const userRow = (await db
     .prepare("SELECT workspace_name FROM users WHERE id = ?")
-    .get(userId) as { workspace_name: string } | undefined;
+    .get(userId)) as { workspace_name: string } | undefined;
 
-  const consultants = listConsultants(
+  const consultants = await listConsultants(
     userId,
     { includeArchived: true },
     db
   );
-  const decks = listDecks(userId, db);
-  const grimorio = listGrimorioCards(
+  const decks = await listDecks(userId, db);
+  const grimorio = await listGrimorioCards(
     userId,
     { onlyAnnotated: true },
     db
   );
-  const readingSummaries = listReadings(userId, {}, db);
-  const appointments = listAppointments(userId, {}, db);
+  const readingSummaries = await listReadings(userId, {}, db);
+  const appointments = await listAppointments(userId, {}, db);
 
-  const detailedReadings = readingSummaries
-    .map((summary) => getReadingDetail(userId, summary.id, db))
-    .filter((d): d is NonNullable<typeof d> => d !== null);
+  const detailedReadings = (
+    await Promise.all(
+      readingSummaries.map((summary) => getReadingDetail(userId, summary.id, db))
+    )
+  ).filter((d): d is NonNullable<typeof d> => d !== null);
 
   return {
     schemaVersion: 1,
@@ -364,11 +365,11 @@ export function exportWorkspaceBackup(
   };
 }
 
-export function importWorkspaceBackup(
+export async function importWorkspaceBackup(
   userId: string,
   rawJson: unknown,
-  db: DatabaseSync = getDb(userId)
-): { importedReadings: number; importedConsultants: number } {
+  db: AppDatabase = getDb(userId)
+): Promise<{ importedReadings: number; importedConsultants: number }> {
   const parsed = workspaceBackupSchema.safeParse(rawJson);
   if (!parsed.success) {
     throw new Error(
@@ -381,12 +382,12 @@ export function importWorkspaceBackup(
   const consultantIdMap = new Map<string, string>();
   const deckIdMap = new Map<string, string>();
 
-  db.exec("BEGIN");
+  await db.exec("BEGIN");
   try {
     for (const d of payload.decks) {
       const newDeckId = `deck-${randomUUID()}`;
       deckIdMap.set(d.id, newDeckId);
-      db.prepare(
+      await db.prepare(
         `INSERT INTO decks (
           id, user_id, name, tradition, author, card_count, description, is_default, needs_setup, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`
@@ -405,7 +406,7 @@ export function importWorkspaceBackup(
     for (const c of payload.consultants) {
       const newConsId = `cons-${randomUUID()}`;
       consultantIdMap.set(c.id, newConsId);
-      db.prepare(
+      await db.prepare(
         `INSERT INTO consultants (
           id, user_id, full_name, alias, email, phone, preferred_channel,
           context_notes, personal_notes, avatar_hue, archived_at, created_at, updated_at
@@ -425,13 +426,13 @@ export function importWorkspaceBackup(
         nowIso,
         nowIso
       );
-      syncEntityTags(userId, "consultant", newConsId, c.tags, "consultant", db);
+      await syncEntityTags(userId, "consultant", newConsId, c.tags, "consultant", db);
     }
 
     for (const ce of payload.cardEntries) {
       const mappedDeckId = ce.deckId ? (deckIdMap.get(ce.deckId) ?? null) : null;
       const ceId = `ce-${randomUUID()}`;
-      db.prepare(
+      await db.prepare(
         `INSERT OR REPLACE INTO card_entries (
           id, user_id, card_id, deck_id, custom_image_url, personal_meaning,
           reversed_meaning, symbols_associations, keywords_json, reflections, updated_at
@@ -449,7 +450,7 @@ export function importWorkspaceBackup(
         ce.reflections,
         nowIso
       );
-      syncEntityTags(userId, "card_entry", ceId, ce.tags, "general", db);
+      await syncEntityTags(userId, "card_entry", ceId, ce.tags, "general", db);
     }
 
     for (const r of payload.readings) {
@@ -468,7 +469,7 @@ export function importWorkspaceBackup(
         .filter((id): id is string => Boolean(id));
       const mappedDeck = mappedDeckIds[0] ?? null;
 
-      db.prepare(
+      await db.prepare(
         `INSERT INTO readings (
           id, user_id, consultant_id, appointment_id, deck_id, deck_ids_json,
           spread_template_id, spread_name, custom_positions_json, title,
@@ -495,10 +496,10 @@ export function importWorkspaceBackup(
         nowIso,
         nowIso
       );
-      syncEntityTags(userId, "reading", newReadingId, r.tags, "theme", db);
+      await syncEntityTags(userId, "reading", newReadingId, r.tags, "theme", db);
 
       for (const rc of r.cards) {
-        db.prepare(
+        await db.prepare(
           `INSERT INTO reading_cards (
             id, reading_id, position_index, position_title, position_prompt,
             card_id, orientation, observation_notes, contextual_interpretation,
@@ -521,7 +522,7 @@ export function importWorkspaceBackup(
 
       for (const ev of r.events) {
         const evId = `evt-${randomUUID()}`;
-        db.prepare(
+        await db.prepare(
           `INSERT INTO deck_events (
             id, user_id, reading_id, card_id, occurred_phase, phenomenon_type,
             custom_phenomenon_label, linked_position_index, observation_description,
@@ -541,14 +542,14 @@ export function importWorkspaceBackup(
           ev.occurredAt,
           nowIso
         );
-        syncEntityTags(userId, "deck_event", evId, ev.tags, "phenomenon", db);
+        await syncEntityTags(userId, "deck_event", evId, ev.tags, "phenomenon", db);
       }
     }
 
     for (const a of payload.appointments) {
       const mappedCons = consultantIdMap.get(a.consultantId);
       if (!mappedCons) continue;
-      db.prepare(
+      await db.prepare(
         `INSERT INTO appointments (
           id, user_id, consultant_id, title, scheduled_at, duration_minutes,
           modality, status, intention, prep_notes, linked_reading_id, created_at, updated_at
@@ -569,9 +570,9 @@ export function importWorkspaceBackup(
       );
     }
 
-    db.exec("COMMIT");
+    await db.exec("COMMIT");
   } catch (err) {
-    db.exec("ROLLBACK");
+    await db.exec("ROLLBACK");
     throw err;
   }
 

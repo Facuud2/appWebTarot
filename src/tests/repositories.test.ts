@@ -39,9 +39,9 @@ import {
 import { createDatabaseInstance } from "@/server/db";
 
 describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
-  it("initializes 78 canonical tarot cards and starts with clean empty workspace", () => {
+  it("initializes 78 canonical tarot cards and starts with clean empty workspace", async () => {
     const db = createDatabaseInstance(":memory:", { seedDemo: false });
-    const user = registerNewUser(
+    const user = await registerNewUser(
       {
         name: "Usuario Tarot",
         workspaceName: "Mesa Limpia",
@@ -51,7 +51,7 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
       db
     );
 
-    const cards = listGrimorioCards(user.id, {}, db);
+    const cards = await listGrimorioCards(user.id, {}, db);
     expect(cards).toHaveLength(318);
 
     const rwsCards = cards.filter((c) => c.card.deckTradition === "rws");
@@ -59,20 +59,20 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     const rwsMajors = rwsCards.filter((c) => c.card.arcana === "major");
     expect(rwsMajors).toHaveLength(22);
 
-    const snapshot = getDashboardSnapshot(user.id, db);
+    const snapshot = await getDashboardSnapshot(user.id, db);
     expect(snapshot.counts.completedReadings).toBe(0);
     expect(snapshot.counts.draftReadings).toBe(0);
     expect(snapshot.counts.annotatedCards).toBe(0);
     expect(snapshot.counts.recordedPhenomena).toBe(0);
     expect(snapshot.incompleteDecks).toHaveLength(0);
     expect(snapshot.incompleteConsultants).toHaveLength(0);
-    expect(listConsultants(user.id, {}, db)).toHaveLength(0);
-    expect(listDecks(user.id, db)).toHaveLength(0);
+    expect(await listConsultants(user.id, {}, db)).toHaveLength(0);
+    expect(await listDecks(user.id, db)).toHaveLength(0);
   });
 
-  it("enforces strict user isolation between private accounts and demo data", () => {
+  it("enforces strict user isolation between private accounts and demo data", async () => {
     const db = createDatabaseInstance(":memory:", { seedDemo: true });
-    const privateUser = registerNewUser(
+    const privateUser = await registerNewUser(
       {
         name: "Lucía Ríos",
         workspaceName: "Consultorio del Norte",
@@ -83,10 +83,10 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     );
 
     expect(privateUser.isDemo).toBe(false);
-    expect(listConsultants(privateUser.id, {}, db)).toHaveLength(0);
-    expect(listReadings(privateUser.id, {}, db)).toHaveLength(0);
+    expect(await listConsultants(privateUser.id, {}, db)).toHaveLength(0);
+    expect(await listReadings(privateUser.id, {}, db)).toHaveLength(0);
 
-    const authenticated = authenticateUser(
+    const authenticated = await authenticateUser(
       {
         email: "lucia@estudio.org",
         password: "clave-segura-lecturas",
@@ -95,16 +95,16 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     );
     expect(authenticated?.id).toBe(privateUser.id);
     expect(
-      authenticateUser(
+      await authenticateUser(
         { email: "lucia@estudio.org", password: "incorrecta-password" },
         db
       )
     ).toBeNull();
   });
 
-  it("supports complete workflow: consultant -> optional duration appointment -> multi-deck + quick deck -> progressive reading -> deck event -> card note sync", () => {
+  it("supports complete workflow: consultant -> optional duration appointment -> multi-deck + quick deck -> progressive reading -> deck event -> card note sync", async () => {
     const db = createDatabaseInstance(":memory:", { seedDemo: false });
-    const user = registerNewUser(
+    const user = await registerNewUser(
       {
         name: "Mateo Soler",
         workspaceName: "Archivo Central",
@@ -114,7 +114,7 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
       db
     );
 
-    const consultant = createConsultant(
+    const consultant = await createConsultant(
       user.id,
       {
         fullName: "Alias: Viajera Sur",
@@ -131,7 +131,7 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     expect(consultant.displayName).toBe("Viajera Sur");
     expect(consultant.tags.map((t) => t.name)).toContain("Oficio");
 
-    const deck = createDeck(
+    const deck = await createDeck(
       user.id,
       {
         name: "Marsella Clásico",
@@ -146,7 +146,7 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     expect(deck.needsSetup).toBe(false);
 
     // Appointment WITHOUT specific duration (optional duration unchecked)
-    const apptWithoutDuration = createAppointment(
+    const apptWithoutDuration = await createAppointment(
       user.id,
       {
         consultantId: consultant.id,
@@ -164,7 +164,7 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     expect(apptWithoutDuration.durationMinutes).toBeNull();
 
     // Appointment WITH specific duration
-    const appt = createAppointment(
+    const appt = await createAppointment(
       user.id,
       {
         consultantId: consultant.id,
@@ -180,10 +180,10 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
       db
     );
     expect(appt.durationMinutes).toBe(60);
-    expect(listAppointments(user.id, {}, db)).toHaveLength(2);
+    expect(await listAppointments(user.id, {}, db)).toHaveLength(2);
 
     // Create reading draft selecting existing deck + inline quick-registered deck
-    const draft = createReadingDraft(
+    const draft = await createReadingDraft(
       user.id,
       {
         title: "Apertura de taller cerámico",
@@ -209,14 +209,14 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     ]);
 
     // Quick-registered deck is flagged with needsSetup = true and surfaces on Home dashboard
-    const snapshotBeforeSetup = getDashboardSnapshot(user.id, db);
+    const snapshotBeforeSetup = await getDashboardSnapshot(user.id, db);
     expect(snapshotBeforeSetup.incompleteDecks).toHaveLength(1);
     const pendingDeck = snapshotBeforeSetup.incompleteDecks[0]!;
     expect(pendingDeck.name).toBe("Tarot Egipcio Kier");
     expect(pendingDeck.needsSetup).toBe(true);
 
     // Completing deck details clears needsSetup and removes the Home notification
-    const completedDeck = updateDeck(
+    const completedDeck = await updateDeck(
       user.id,
       pendingDeck.id,
       {
@@ -230,11 +230,11 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
       db
     );
     expect(completedDeck.needsSetup).toBe(false);
-    expect(getDashboardSnapshot(user.id, db).incompleteDecks).toHaveLength(0);
-    expect(listDecks(user.id, db)).toHaveLength(2);
+    expect((await getDashboardSnapshot(user.id, db)).incompleteDecks).toHaveLength(0);
+    expect(await listDecks(user.id, db)).toHaveLength(2);
 
     // Record deck event
-    const event = createDeckEvent(
+    const event = await createDeckEvent(
       user.id,
       {
         readingId: draft.id,
@@ -253,7 +253,7 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     expect(event.card?.canonicalName).toBe("El Mago");
 
     // Complete reading with 3-layer separation and personal card note sync
-    const completed = updateReadingSession(
+    const completed = await updateReadingSession(
       user.id,
       {
         readingId: draft.id,
@@ -306,12 +306,12 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     expect(completed.deckIds).toHaveLength(2);
 
     // Linked appointment auto-transitioned to completed
-    const apptsAfter = listAppointments(user.id, {}, db);
+    const apptsAfter = await listAppointments(user.id, {}, db);
     const updatedMainAppt = apptsAfter.find((a) => a.id === appt.id);
     expect(updatedMainAppt?.status).toBe("completed");
 
     // Verify custom spread persistence & coordinate reordering
-    const customDraft = createReadingDraft(
+    const customDraft = await createReadingDraft(
       user.id,
       {
         title: "Tirada libre de dos cartas",
@@ -346,10 +346,10 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     );
     expect(customDraft.customPositions).toHaveLength(2);
     expect(customDraft.customPositions[0]?.coordX).toBe(28.5);
-    expect(getReadingDetail(user.id, customDraft.id, db)?.customPositions).toHaveLength(2);
+    expect((await getReadingDetail(user.id, customDraft.id, db))?.customPositions).toHaveLength(2);
 
     // Verify card catalog cross-relations & evolution log
-    upsertPersonalCardEntry(
+    await upsertPersonalCardEntry(
       user.id,
       {
         cardId: "major-01",
@@ -367,37 +367,37 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
       db
     );
 
-    const magoDetail = getGrimorioCardBySlug(user.id, "01-el-mago", db);
+    const magoDetail = await getGrimorioCardBySlug(user.id, "01-el-mago", db);
     expect(magoDetail?.appearances).toHaveLength(1);
     expect(magoDetail?.phenomena).toHaveLength(1);
     expect(magoDetail?.evolutionLog.length).toBeGreaterThanOrEqual(2);
 
     // Verify Consultant dossier relations
-    const dossier = getConsultantDetail(user.id, consultant.id, db);
+    const dossier = await getConsultantDetail(user.id, consultant.id, db);
     expect(dossier?.readings).toHaveLength(2);
     expect(dossier?.frequentCards[0]?.card.id).toBe("major-01");
 
     // Verify multi-dimensional search filters
     expect(
-      listReadings(user.id, { phenomenonType: "jumped" }, db)
+      await listReadings(user.id, { phenomenonType: "jumped" }, db)
     ).toHaveLength(1);
     expect(
-      listReadings(user.id, { cardId: "pentacles-03" }, db)
+      await listReadings(user.id, { cardId: "pentacles-03" }, db)
     ).toHaveLength(1);
     expect(
-      listReadings(user.id, { query: "materiales esenciales" }, db)
+      await listReadings(user.id, { query: "materiales esenciales" }, db)
     ).toHaveLength(1);
 
     // Archive & restore consultant, status update, and JSON backup roundtrip
-    const archived = setConsultantArchived(user.id, consultant.id, true, db);
+    const archived = await setConsultantArchived(user.id, consultant.id, true, db);
     expect(archived.archivedAt).not.toBeNull();
-    setConsultantArchived(user.id, consultant.id, false, db);
-    updateAppointmentStatus(user.id, appt.id, "completed", db);
+    await setConsultantArchived(user.id, consultant.id, false, db);
+    await updateAppointmentStatus(user.id, appt.id, "completed", db);
 
-    const backup = exportWorkspaceBackup(user.id, db);
+    const backup = await exportWorkspaceBackup(user.id, db);
     expect(backup.readings).toHaveLength(2);
 
-    const user2 = registerNewUser(
+    const user2 = await registerNewUser(
       {
         name: "Destino Backup",
         workspaceName: "Restaurado",
@@ -406,15 +406,15 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
       },
       db
     );
-    const imported = importWorkspaceBackup(user2.id, backup, db);
+    const imported = await importWorkspaceBackup(user2.id, backup, db);
     expect(imported.importedReadings).toBe(2);
-    const restoredReadings = listReadings(user2.id, {}, db);
+    const restoredReadings = await listReadings(user2.id, {}, db);
     expect(restoredReadings).toHaveLength(2);
   });
 
-  it("supports quick consultant registration during reading creation and setup reminders in dashboard", () => {
+  it("supports quick consultant registration during reading creation and setup reminders in dashboard", async () => {
     const db = createDatabaseInstance(":memory:", { seedDemo: false });
-    const user = registerNewUser(
+    const user = await registerNewUser(
       {
         name: "Luz Barral",
         workspaceName: "Espacio Índigo",
@@ -425,10 +425,10 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     );
 
     // Initial state: 0 incomplete consultants
-    expect(getDashboardSnapshot(user.id, db).incompleteConsultants).toHaveLength(0);
+    expect((await getDashboardSnapshot(user.id, db)).incompleteConsultants).toHaveLength(0);
 
     // Quick-registered consultant via reading creation
-    const draft = createReadingDraft(
+    const draft = await createReadingDraft(
       user.id,
       {
         title: "Lectura para nueva consultante",
@@ -459,17 +459,17 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     expect(draft.consultantId).toBeTruthy();
     expect(draft.consultant?.displayName).toBe("Valeria Morales");
 
-    const createdConsultant = getConsultantById(user.id, draft.consultantId!, db);
+    const createdConsultant = await getConsultantById(user.id, draft.consultantId!, db);
     expect(createdConsultant?.displayName).toBe("Valeria Morales");
     expect(createdConsultant?.needsSetup).toBe(true);
 
     // Surfaces in Dashboard snapshot
-    const snapshotWithIncomplete = getDashboardSnapshot(user.id, db);
+    const snapshotWithIncomplete = await getDashboardSnapshot(user.id, db);
     expect(snapshotWithIncomplete.incompleteConsultants).toHaveLength(1);
     expect(snapshotWithIncomplete.incompleteConsultants[0]?.displayName).toBe("Valeria Morales");
 
     // Completing consultant details clears needsSetup and removes the Home notification
-    const completedConsultant = updateConsultant(
+    const completedConsultant = await updateConsultant(
       user.id,
       draft.consultantId!,
       {
@@ -485,12 +485,12 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
       db
     );
     expect(completedConsultant.needsSetup).toBe(false);
-    expect(getDashboardSnapshot(user.id, db).incompleteConsultants).toHaveLength(0);
+    expect((await getDashboardSnapshot(user.id, db)).incompleteConsultants).toHaveLength(0);
   });
 
-  it("permite registrar un consultante rápido al agendar una sesión y registrar mazos rápidos", () => {
+  it("permite registrar un consultante rápido al agendar una sesión y registrar mazos rápidos", async () => {
     const db = createDatabaseInstance(":memory:", { seedDemo: false });
-    const user = registerNewUser(
+    const user = await registerNewUser(
       {
         name: "Luz",
         workspaceName: "Espacio Astral",
@@ -501,7 +501,7 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     );
 
     // Agendar cita con registro rápido de nuevo consultante
-    const appt = createAppointment(
+    const appt = await createAppointment(
       user.id,
       {
         consultantId: "__new__",
@@ -521,21 +521,108 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     expect(appt.id).toBeTruthy();
     expect(appt.consultantDisplayName).toBe("Ignacio Albarracín");
 
-    const createdConsultant = getConsultantById(user.id, appt.consultantId, db);
+    const createdConsultant = await getConsultantById(user.id, appt.consultantId, db);
     expect(createdConsultant).not.toBeNull();
     expect(createdConsultant?.fullName).toBe("Ignacio Albarracín");
     expect(createdConsultant?.needsSetup).toBe(true);
 
-    const snapshot = getDashboardSnapshot(user.id, db);
+    const snapshot = await getDashboardSnapshot(user.id, db);
     expect(snapshot.incompleteConsultants.some((c) => c.id === appt.consultantId)).toBe(true);
 
     // Registro de mazo rápido
-    const quickDeck = createQuickDeck(user.id, "Tarot Esotérico de Marsella", db);
+    const quickDeck = await createQuickDeck(user.id, "Tarot Esotérico de Marsella", db);
     expect(quickDeck.id).toBeTruthy();
     expect(quickDeck.name).toBe("Tarot Esotérico de Marsella");
     expect(quickDeck.needsSetup).toBe(true);
 
-    const snapshotWithDeck = getDashboardSnapshot(user.id, db);
+    const snapshotWithDeck = await getDashboardSnapshot(user.id, db);
     expect(snapshotWithDeck.incompleteDecks.some((d) => d.id === quickDeck.id)).toBe(true);
   });
+
+  it("supports creating and retrieving custom spread readings with repositioned cards", async () => {
+    const db = createDatabaseInstance(":memory:", { seedDemo: false });
+    const user = await registerNewUser(
+      {
+        name: "Tarotista Custom",
+        workspaceName: "Mesa Experimental",
+        email: "custom@tarot.org",
+        password: "clave-segura-123",
+      },
+      db
+    );
+
+    const primaryDeck = await createDeck(
+      user.id,
+      {
+        name: "Tarot de Estudio",
+        tradition: "rws",
+        author: "Pamela Colman Smith",
+        description: "Mazo de prueba",
+        cardCount: 78,
+        isDefault: true,
+      },
+      db
+    );
+    expect(primaryDeck).toBeDefined();
+
+    const customPositions = [
+      {
+        positionIndex: 1,
+        title: "Origen",
+        prompt: "Raíz de la consulta",
+        coordX: 20,
+        coordY: 45,
+      },
+      {
+        positionIndex: 2,
+        title: "Desafío",
+        prompt: "Fuerza antagonista",
+        coordX: 50,
+        coordY: 55,
+      },
+      {
+        positionIndex: 3,
+        title: "Desenlace",
+        prompt: "Resolución proyectada",
+        coordX: 80,
+        coordY: 45,
+      },
+    ];
+
+    const reading = await createReadingDraft(
+      user.id,
+      {
+        title: "Sesión personalizada 3 cartas",
+        consultantId: "",
+        appointmentId: "",
+        deckIds: primaryDeck ? [primaryDeck.id] : [],
+        quickNewDecks: [],
+        quickNewConsultant: "",
+        spreadMode: "custom",
+        spreadTemplateId: "",
+        spreadName: "Estructura personalizada",
+        customPositions,
+        questionIntention: "¿Hacia dónde evoluciona este proyecto?",
+        sessionContext: "Consulta privada de prueba.",
+        performedAt: "2026-10-27T16:00:00.000Z",
+      },
+      db
+    );
+
+    expect(reading.id).toBeTruthy();
+    expect(reading.spreadName).toBe("Estructura personalizada");
+    expect(reading.customPositions).toHaveLength(3);
+    expect(reading.customPositions[0]?.coordX).toBe(20);
+    expect(reading.customPositions[0]?.title).toBe("Origen");
+    expect(reading.customPositions[1]?.coordX).toBe(50);
+    expect(reading.customPositions[2]?.coordX).toBe(80);
+
+    // Verify reading detail can be retrieved immediately
+    const retrieved = await getReadingDetail(user.id, reading.id, db);
+    expect(retrieved).not.toBeNull();
+    expect(retrieved?.id).toBe(reading.id);
+    expect(retrieved?.customPositions).toHaveLength(3);
+    expect(retrieved?.title).toBe("Sesión personalizada 3 cartas");
+  });
 });
+

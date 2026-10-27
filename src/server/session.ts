@@ -181,7 +181,7 @@ export function extractSessionTokenFromCookieHeader(
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-export function getUserFromToken(signed: string): User | null {
+export async function getUserFromToken(signed: string): Promise<User | null> {
   // 1. Verificar token autocontenido con payload HMAC (resistente entre lambdas efímeras de Vercel)
   const payload = verifySignedPayloadToken<SessionPayload>(signed);
   if (payload && payload.userId) {
@@ -208,9 +208,9 @@ export function getUserFromToken(signed: string): User | null {
     if (user.isDemo || user.id === DEMO_USER_ID) {
       try {
         const demoDb = getDemoDb();
-        const existing = demoDb
+        const existing = (await demoDb
           .prepare("SELECT * FROM users WHERE id = ?")
-          .get(DEMO_USER_ID) as UserRow | undefined;
+          .get(DEMO_USER_ID)) as UserRow | undefined;
         if (existing) {
           return mapUserRow(existing);
         }
@@ -220,18 +220,18 @@ export function getUserFromToken(signed: string): User | null {
       }
     }
 
-    // Asegurar que el usuario exista en la instancia SQLite local y leer sus datos vigentes
+    // Asegurar que el usuario exista en la instancia SQLite local o Turso y leer sus datos vigentes
     try {
       const db = getDb();
-      const existing = db
+      const existing = (await db
         .prepare("SELECT * FROM users WHERE id = ?")
-        .get(payload.userId) as UserRow | undefined;
+        .get(payload.userId)) as UserRow | undefined;
 
       if (existing) {
         return mapUserRow(existing);
       }
 
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO users (id, email, name, workspace_name, password_hash, is_demo, preferences_json, created_at)
         VALUES (?, ?, ?, ?, '', ?, ?, ?)
       `).run(
@@ -246,9 +246,9 @@ export function getUserFromToken(signed: string): User | null {
 
       // Si no tiene mazos registrados en esta instancia, asegurar mazos base
       const checkDeck = db.prepare("SELECT id FROM decks WHERE user_id = ? LIMIT 1");
-      if (!checkDeck.get(user.id)) {
+      if (!(await checkDeck.get(user.id))) {
         for (const deck of BUILTIN_DECKS) {
-          db.prepare(`
+          await db.prepare(`
             INSERT OR IGNORE INTO decks (
               id, user_id, name, tradition, author, card_count, description, is_default, needs_setup, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
@@ -280,14 +280,14 @@ export function getUserFromToken(signed: string): User | null {
       const tokenHash = hashSessionToken(raw);
       const nowIso = new Date().toISOString();
 
-      const row = db
+      const row = (await db
         .prepare(
           `SELECT u.id, u.email, u.name, u.workspace_name, u.is_demo, u.preferences_json, u.created_at
            FROM sessions s
            JOIN users u ON u.id = s.user_id
            WHERE s.token_hash = ? AND s.expires_at > ?`
         )
-        .get(tokenHash, nowIso) as UserRow | undefined;
+        .get(tokenHash, nowIso)) as UserRow | undefined;
 
       if (row) return mapUserRow(row);
     } catch {
@@ -309,12 +309,12 @@ export async function createUserSession(
   let user: User;
 
   if (typeof userOrId === "string") {
-    const row = db
+    const row = (await db
       .prepare(
         `SELECT id, email, name, workspace_name, is_demo, preferences_json, created_at
          FROM users WHERE id = ?`
       )
-      .get(userOrId) as UserRow | undefined;
+      .get(userOrId)) as UserRow | undefined;
     if (!row) {
       throw new Error("No se encontró el usuario para crear la sesión.");
     }
@@ -344,7 +344,7 @@ export async function createUserSession(
   // Registro auxiliar opcional en tabla sessions si está disponible
   try {
     const tokenHash = hashSessionToken(user.id + ":" + now.getTime());
-    db.prepare(
+    await db.prepare(
       `INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
        VALUES (?, ?, ?, ?, ?)`
     ).run(
@@ -416,7 +416,7 @@ export async function destroyCurrentSession(request?: Request): Promise<void> {
     const raw = verifySignedSessionToken(signed);
     if (raw) {
       const db = getDb();
-      db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(
+      await db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(
         hashSessionToken(raw)
       );
     }
@@ -429,7 +429,7 @@ export async function getCurrentUser(request?: Request): Promise<User | null> {
     const cookieHeader = request.headers.get("cookie");
     const token = extractSessionTokenFromCookieHeader(cookieHeader);
     if (token) {
-      const user = getUserFromToken(token);
+      const user = await getUserFromToken(token);
       if (user) return user;
     }
   }
@@ -439,7 +439,7 @@ export async function getCurrentUser(request?: Request): Promise<User | null> {
     const cookieStore = await cookies();
     const signed = cookieStore.get(SESSION_COOKIE_NAME)?.value;
     if (signed) {
-      return getUserFromToken(signed);
+      return await getUserFromToken(signed);
     }
   } catch {
     // Ignorar si no está dentro del request scope de Server Components

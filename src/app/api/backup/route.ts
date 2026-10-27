@@ -11,7 +11,7 @@ export async function GET(): Promise<NextResponse> {
     );
   }
 
-  const backup = exportWorkspaceBackup(user.id);
+  const backup = await exportWorkspaceBackup(user.id);
   const datePart = new Date().toISOString().slice(0, 10);
   const slug = user.workspaceName
     .toLowerCase()

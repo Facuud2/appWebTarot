@@ -3,7 +3,19 @@ import "server-only";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { createClient, type Client, type Transaction, type InArgs } from "@libsql/client";
+
+export interface PreparedStatement {
+  all<T = Record<string, unknown>>(...args: unknown[]): Promise<T[]>;
+  get<T = Record<string, unknown>>(...args: unknown[]): Promise<T | undefined>;
+  run(...args: unknown[]): Promise<{ changes: number; lastInsertRowid?: number | bigint }>;
+}
+
+export interface AppDatabase {
+  prepare(sql: string): PreparedStatement;
+  exec(sql: string): Promise<void>;
+  transaction<T>(fn: (tx: AppDatabase) => Promise<T>): Promise<T>;
+}
 import {
   BUILTIN_DECKS,
   BUILTIN_SPREAD_TEMPLATES,
@@ -232,7 +244,11 @@ CREATE INDEX IF NOT EXISTS idx_entity_tags_lookup ON entity_tags(entity_type, en
 export const DEMO_USER_EMAIL = "clara@grimorio.local";
 export const DEMO_USER_ID = "user-demo-clara";
 
-function syncCanonicalCatalog(db: DatabaseSync): void {
+async function syncCanonicalCatalog(db: AppDatabase): Promise<void> {
+  const countRow = await db.prepare("SELECT count(*) as c FROM cards_catalog").get<{ c: number }>();
+  if (countRow && Number(countRow.c) >= CANONICAL_TAROT_CARDS.length) {
+    return;
+  }
   const upsertCard = db.prepare(`
     INSERT INTO cards_catalog (
       id, slug, arcana, suit, rank_number, roman_numeral,
@@ -270,7 +286,7 @@ function syncCanonicalCatalog(db: DatabaseSync): void {
   db.exec("BEGIN");
   try {
     for (const card of CANONICAL_TAROT_CARDS) {
-      upsertCard.run(
+      await upsertCard.run(
         card.id,
         card.slug,
         card.arcana,
@@ -288,7 +304,7 @@ function syncCanonicalCatalog(db: DatabaseSync): void {
       );
     }
 
-    db
+    await db
       .prepare(
         "DELETE FROM spread_templates WHERE id = 'spread-open-table' AND is_builtin = 1"
       )
@@ -296,7 +312,7 @@ function syncCanonicalCatalog(db: DatabaseSync): void {
 
     const baseDate = "2026-01-01T00:00:00.000Z";
     for (const spread of BUILTIN_SPREAD_TEMPLATES) {
-      upsertSpread.run(
+      await upsertSpread.run(
         spread.id,
         spread.name,
         spread.category,
@@ -312,12 +328,12 @@ function syncCanonicalCatalog(db: DatabaseSync): void {
   }
 }
 
-function migrateDatabaseSchema(db: DatabaseSync): void {
-  const decksSqlRow = db
+async function migrateDatabaseSchema(db: AppDatabase): Promise<void> {
+  const decksSqlRow = (await db
     .prepare(
       "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'decks'"
     )
-    .get() as { sql?: string } | undefined;
+    .get()) as { sql?: string } | undefined;
 
   if (
     decksSqlRow?.sql &&
@@ -365,11 +381,11 @@ function migrateDatabaseSchema(db: DatabaseSync): void {
     }
   }
 
-  const apptSqlRow = db
+  const apptSqlRow = (await db
     .prepare(
       "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'appointments'"
     )
-    .get() as { sql?: string } | undefined;
+    .get()) as { sql?: string } | undefined;
 
   if (
     apptSqlRow?.sql &&
@@ -416,9 +432,9 @@ function migrateDatabaseSchema(db: DatabaseSync): void {
     }
   }
 
-  const readingCols = db
+  const readingCols = (await db
     .prepare("PRAGMA table_info(readings)")
-    .all() as Array<{ name: string }>;
+    .all()) as Array<{ name: string }>;
   const colNames = new Set(readingCols.map((c) => c.name));
 
   if (!colNames.has("deck_ids_json")) {
@@ -440,9 +456,9 @@ function migrateDatabaseSchema(db: DatabaseSync): void {
     );
   }
 
-  const consultantCols = db
+  const consultantCols = (await db
     .prepare("PRAGMA table_info(consultants)")
-    .all() as Array<{ name: string }>;
+    .all()) as Array<{ name: string }>;
   const consultantColNames = new Set(consultantCols.map((c) => c.name));
   if (!consultantColNames.has("needs_setup")) {
     db.exec(
@@ -450,11 +466,11 @@ function migrateDatabaseSchema(db: DatabaseSync): void {
     );
   }
 
-  const cardsSqlRow = db
+  const cardsSqlRow = (await db
     .prepare(
       "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'cards_catalog'"
     )
-    .get() as { sql?: string } | undefined;
+    .get()) as { sql?: string } | undefined;
 
   if (
     cardsSqlRow?.sql &&
@@ -506,9 +522,9 @@ function migrateDatabaseSchema(db: DatabaseSync): void {
   }
 }
 
-export function cleanupDemoDataFromDatabase(db: DatabaseSync): void {
+export async function cleanupDemoDataFromDatabase(db: AppDatabase): Promise<void> {
   try {
-    db.exec(`
+    await db.exec(`
       DELETE FROM entity_tags WHERE entity_type = 'consultant' AND entity_id IN (SELECT id FROM consultants WHERE user_id = '${DEMO_USER_ID}');
       DELETE FROM entity_tags WHERE entity_type = 'reading' AND entity_id IN (SELECT id FROM readings WHERE user_id = '${DEMO_USER_ID}');
       DELETE FROM entity_tags WHERE entity_type = 'deck_event' AND entity_id IN (SELECT id FROM deck_events WHERE user_id = '${DEMO_USER_ID}');
@@ -530,8 +546,9 @@ export function cleanupDemoDataFromDatabase(db: DatabaseSync): void {
   }
 }
 
-function syncBuiltinDecks(db: DatabaseSync): void {
-  const users = db.prepare("SELECT id FROM users").all() as Array<{ id: string }>;
+async function syncBuiltinDecks(db: AppDatabase): Promise<void> {
+  const users = (await db.prepare("SELECT id FROM users").all()) as Array<{ id: string }>;
+  if (users.length === 0) return;
   const nowIso = "2026-01-01T00:00:00.000Z";
 
   const checkDeck = db.prepare(
@@ -547,10 +564,10 @@ function syncBuiltinDecks(db: DatabaseSync): void {
   try {
     for (const user of users) {
       for (const deck of BUILTIN_DECKS) {
-        const existing = checkDeck.get(user.id, deck.tradition) as { id: string } | undefined;
+        const existing = (await checkDeck.get(user.id, deck.tradition)) as { id: string } | undefined;
         if (!existing) {
           const deckId = `${deck.id}-${user.id}`;
-          insertDeck.run(
+          await insertDeck.run(
             deckId,
             user.id,
             deck.name,
@@ -571,10 +588,10 @@ function syncBuiltinDecks(db: DatabaseSync): void {
   }
 }
 
-export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
-  const existingUser = db
+export async function seedDemoWorkspaceIfMissing(db: AppDatabase): Promise<void> {
+  const existingUser = (await db
     .prepare("SELECT id FROM users WHERE id = ?")
-    .get(DEMO_USER_ID) as { id: string } | undefined;
+    .get(DEMO_USER_ID)) as { id: string } | undefined;
   if (existingUser) {
     return;
   }
@@ -589,7 +606,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
 
   db.exec("BEGIN");
   try {
-    db.prepare(
+    await db.prepare(
       `INSERT INTO users (id, email, name, workspace_name, password_hash, is_demo, preferences_json, created_at)
        VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
     ).run(
@@ -632,7 +649,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       `INSERT INTO decks (id, user_id, name, tradition, author, card_count, description, is_default, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
-    insertDeck.run(
+    await insertDeck.run(
       "deck-rws-centennial",
       DEMO_USER_ID,
       "Rider-Waite-Smith Edición Centenario",
@@ -643,7 +660,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       1,
       isoOffset(-58, 10, 0)
     );
-    insertDeck.run(
+    await insertDeck.run(
       "deck-marsella-camoin",
       DEMO_USER_ID,
       "Tarot de Marsella Restaurado",
@@ -654,7 +671,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       0,
       isoOffset(-45, 10, 0)
     );
-    insertDeck.run(
+    await insertDeck.run(
       "deck-botanico-estudio",
       DEMO_USER_ID,
       "Baraja de Grabados del Taller",
@@ -681,7 +698,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
        VALUES (?, ?, ?, ?, ?, ?)`
     );
     for (const [id, name, cat] of tagSeeds) {
-      insertTag.run(
+      await insertTag.run(
         id,
         DEMO_USER_ID,
         name,
@@ -703,7 +720,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
-    insertConsultant.run(
+    await insertConsultant.run(
       "cons-mariana",
       DEMO_USER_ID,
       "Mariana Echeverría",
@@ -718,10 +735,10 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       isoOffset(-42, 11, 0),
       isoOffset(-3, 18, 30)
     );
-    linkTag.run("tag-vocacion", "consultant", "cons-mariana");
-    linkTag.run("tag-mensual", "consultant", "cons-mariana");
+    await linkTag.run("tag-vocacion", "consultant", "cons-mariana");
+    await linkTag.run("tag-mensual", "consultant", "cons-mariana");
 
-    insertConsultant.run(
+    await insertConsultant.run(
       "cons-bitacora-norte",
       DEMO_USER_ID,
       "Alias: Caminante del Río",
@@ -736,9 +753,9 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       isoOffset(-30, 15, 0),
       isoOffset(-7, 16, 0)
     );
-    linkTag.run("tag-duelo", "consultant", "cons-bitacora-norte");
+    await linkTag.run("tag-duelo", "consultant", "cons-bitacora-norte");
 
-    insertConsultant.run(
+    await insertConsultant.run(
       "cons-julian",
       DEMO_USER_ID,
       "Julián Santamaría",
@@ -753,7 +770,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       isoOffset(-18, 10, 30),
       isoOffset(-1, 14, 0)
     );
-    linkTag.run("tag-vocacion", "consultant", "cons-julian");
+    await linkTag.run("tag-vocacion", "consultant", "cons-julian");
 
     // Readings
     const insertReading = db.prepare(
@@ -765,7 +782,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
-    insertReading.run(
+    await insertReading.run(
       "read-mariana-estudio",
       DEMO_USER_ID,
       "cons-mariana",
@@ -785,10 +802,10 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       isoOffset(-12, 17, 0),
       isoOffset(-12, 18, 15)
     );
-    linkTag.run("tag-vocacion", "reading", "read-mariana-estudio");
-    linkTag.run("tag-duelo", "reading", "read-mariana-estudio");
+    await linkTag.run("tag-vocacion", "reading", "read-mariana-estudio");
+    await linkTag.run("tag-duelo", "reading", "read-mariana-estudio");
 
-    insertReading.run(
+    await insertReading.run(
       "read-caminante-mudanza",
       DEMO_USER_ID,
       "cons-bitacora-norte",
@@ -808,9 +825,9 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       isoOffset(-6, 19, 0),
       isoOffset(-6, 19, 50)
     );
-    linkTag.run("tag-duelo", "reading", "read-caminante-mudanza");
+    await linkTag.run("tag-duelo", "reading", "read-caminante-mudanza");
 
-    insertReading.run(
+    await insertReading.run(
       "read-julian-borrador",
       DEMO_USER_ID,
       "cons-julian",
@@ -830,7 +847,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       isoOffset(-1, 18, 30),
       isoOffset(-1, 18, 55)
     );
-    linkTag.run("tag-vocacion", "reading", "read-julian-borrador");
+    await linkTag.run("tag-vocacion", "reading", "read-julian-borrador");
 
     // Reading cards
     const insertReadingCard = db.prepare(
@@ -841,7 +858,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
-    insertReadingCard.run(
+    await insertReadingCard.run(
       "rc-1",
       "read-mariana-estudio",
       1,
@@ -855,7 +872,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       1,
       isoOffset(-12, 17, 15)
     );
-    insertReadingCard.run(
+    await insertReadingCard.run(
       "rc-2",
       "read-mariana-estudio",
       2,
@@ -869,7 +886,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       1,
       isoOffset(-12, 17, 20)
     );
-    insertReadingCard.run(
+    await insertReadingCard.run(
       "rc-3",
       "read-mariana-estudio",
       3,
@@ -883,7 +900,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       1,
       isoOffset(-12, 17, 24)
     );
-    insertReadingCard.run(
+    await insertReadingCard.run(
       "rc-4",
       "read-mariana-estudio",
       4,
@@ -897,7 +914,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       1,
       isoOffset(-12, 17, 28)
     );
-    insertReadingCard.run(
+    await insertReadingCard.run(
       "rc-5",
       "read-mariana-estudio",
       5,
@@ -913,7 +930,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
     );
 
     // Reading 2 cards
-    insertReadingCard.run(
+    await insertReadingCard.run(
       "rc-6",
       "read-caminante-mudanza",
       1,
@@ -927,7 +944,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       0,
       isoOffset(-6, 19, 10)
     );
-    insertReadingCard.run(
+    await insertReadingCard.run(
       "rc-7",
       "read-caminante-mudanza",
       2,
@@ -941,7 +958,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       1,
       isoOffset(-6, 19, 16)
     );
-    insertReadingCard.run(
+    await insertReadingCard.run(
       "rc-8",
       "read-caminante-mudanza",
       3,
@@ -957,7 +974,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
     );
 
     // Reading 3 (draft) cards
-    insertReadingCard.run(
+    await insertReadingCard.run(
       "rc-9",
       "read-julian-borrador",
       1,
@@ -971,7 +988,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       0,
       isoOffset(-1, 18, 40)
     );
-    insertReadingCard.run(
+    await insertReadingCard.run(
       "rc-10",
       "read-julian-borrador",
       2,
@@ -995,7 +1012,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
-    insertEvent.run(
+    await insertEvent.run(
       "evt-torre-salto",
       DEMO_USER_ID,
       "read-mariana-estudio",
@@ -1009,9 +1026,9 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       isoOffset(-12, 17, 5),
       isoOffset(-12, 17, 6)
     );
-    linkTag.run("tag-salto-limpio", "deck_event", "evt-torre-salto");
+    await linkTag.run("tag-salto-limpio", "deck_event", "evt-torre-salto");
 
-    insertEvent.run(
+    await insertEvent.run(
       "evt-estrella-base",
       DEMO_USER_ID,
       "read-mariana-estudio",
@@ -1025,9 +1042,9 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       isoOffset(-12, 17, 12),
       isoOffset(-12, 17, 12)
     );
-    linkTag.run("tag-base-espejo", "deck_event", "evt-estrella-base");
+    await linkTag.run("tag-base-espejo", "deck_event", "evt-estrella-base");
 
-    insertEvent.run(
+    await insertEvent.run(
       "evt-ermitano-corte",
       DEMO_USER_ID,
       "read-caminante-mudanza",
@@ -1041,9 +1058,9 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       isoOffset(-6, 19, 4),
       isoOffset(-6, 19, 5)
     );
-    linkTag.run("tag-corte-pesado", "deck_event", "evt-ermitano-corte");
+    await linkTag.run("tag-corte-pesado", "deck_event", "evt-ermitano-corte");
 
-    insertEvent.run(
+    await insertEvent.run(
       "evt-bastos-oculta",
       DEMO_USER_ID,
       "read-julian-borrador",
@@ -1066,7 +1083,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
-    insertAppointment.run(
+    await insertAppointment.run(
       "appt-hoy-mariana",
       DEMO_USER_ID,
       "cons-mariana",
@@ -1082,7 +1099,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       isoOffset(-2, 10, 0)
     );
 
-    insertAppointment.run(
+    await insertAppointment.run(
       "appt-manana-caminante",
       DEMO_USER_ID,
       "cons-bitacora-norte",
@@ -1098,7 +1115,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       isoOffset(-3, 12, 0)
     );
 
-    insertAppointment.run(
+    await insertAppointment.run(
       "appt-proxima-semana-julian",
       DEMO_USER_ID,
       "cons-julian",
@@ -1114,7 +1131,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       isoOffset(-1, 19, 0)
     );
 
-    insertAppointment.run(
+    await insertAppointment.run(
       "appt-pasada-mariana",
       DEMO_USER_ID,
       "cons-mariana",
@@ -1138,7 +1155,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       ) VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?)`
     );
 
-    insertCardEntry.run(
+    await insertCardEntry.run(
       "ce-ermitano",
       DEMO_USER_ID,
       "major-09",
@@ -1149,9 +1166,9 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       "En el Marsella la mirada hacia atrás invita a dialogar con la experiencia acumulada antes de girar.",
       isoOffset(-6, 19, 30)
     );
-    linkTag.run("tag-vocacion", "card_entry", "ce-ermitano");
+    await linkTag.run("tag-vocacion", "card_entry", "ce-ermitano");
 
-    insertCardEntry.run(
+    await insertCardEntry.run(
       "ce-torre",
       DEMO_USER_ID,
       "major-16",
@@ -1162,9 +1179,9 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       "Evitar lenguaje catastrofista en mesa; preguntar siempre qué carga dejó de ser necesaria.",
       isoOffset(-12, 18, 10)
     );
-    linkTag.run("tag-salto-limpio", "card_entry", "ce-torre");
+    await linkTag.run("tag-salto-limpio", "card_entry", "ce-torre");
 
-    insertCardEntry.run(
+    await insertCardEntry.run(
       "ce-estrella",
       DEMO_USER_ID,
       "major-17",
@@ -1175,9 +1192,9 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       "Muy frecuente como carta de base del mazo al cerrar lecturas de duelo o mudanza.",
       isoOffset(-6, 19, 45)
     );
-    linkTag.run("tag-base-espejo", "card_entry", "ce-estrella");
+    await linkTag.run("tag-base-espejo", "card_entry", "ce-estrella");
 
-    insertCardEntry.run(
+    await insertCardEntry.run(
       "ce-ocho-oros",
       DEMO_USER_ID,
       "pentacles-08",
@@ -1195,7 +1212,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
-    insertLog.run(
+    await insertLog.run(
       "log-torre-1",
       DEMO_USER_ID,
       "major-16",
@@ -1205,7 +1222,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       "Al iniciar este registro decidí observar cuándo La Torre describe crisis externas frente a alivios internos. En la mayoría de mis mesas señala el momento exacto en que cae una exigencia artificial.",
       isoOffset(-50, 11, 0)
     );
-    insertLog.run(
+    await insertLog.run(
       "log-torre-2",
       DEMO_USER_ID,
       "major-16",
@@ -1215,7 +1232,7 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
       "Cuando La Torre salta en la mezcla y luego ocupa la base de la cruz, el derrumbe ya sucedió antes de la sesión y opera como terreno despejado para construir.",
       isoOffset(-12, 18, 10)
     );
-    insertLog.run(
+    await insertLog.run(
       "log-ermitano-1",
       DEMO_USER_ID,
       "major-09",
@@ -1233,15 +1250,27 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
   }
 }
 
+export function isTursoConfigured(): boolean {
+  const url = process.env.TURSO_DATABASE_URL?.trim();
+  const token = process.env.TURSO_AUTH_TOKEN?.trim();
+  return Boolean(url && url.length > 0 && token && token.length > 0);
+}
+
 export function resolveDatabasePath(): string {
+  if (isTursoConfigured()) {
+    return process.env.TURSO_DATABASE_URL!.trim();
+  }
+
   const envPath =
     process.env.GRIMORIO_DB_PATH?.trim() ||
     process.env.DATABASE_PATH?.trim();
 
   if (envPath) return envPath;
 
-  // En Vercel / AWS Lambda o entornos serverless:
-  // /var/task es de solo lectura. El único directorio con permisos de escritura es os.tmpdir() (/tmp).
+  if (process.env.VITEST) {
+    return ":memory:";
+  }
+
   if (
     process.env.VERCEL ||
     process.env.AWS_LAMBDA_FUNCTION_NAME ||
@@ -1253,84 +1282,198 @@ export function resolveDatabasePath(): string {
   return "./data/grimorio.db";
 }
 
+export function resolveDemoDatabasePath(): string {
+  const envPath = process.env.GRIMORIO_DEMO_DB_PATH?.trim();
+  if (envPath) return envPath;
+
+  if (process.env.VITEST) {
+    return ":memory:";
+  }
+
+  if (
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.NOW_REGION
+  ) {
+    return path.join(os.tmpdir(), "grimorio-demo.db");
+  }
+
+  return "./data/grimorio-demo.db";
+}
+
+function normalizeArg(val: unknown): unknown {
+  if (typeof val === "boolean") return val ? 1 : 0;
+  return val;
+}
+
+function normalizeArgs(args: unknown[]): unknown[] {
+  const flat = args.length === 1 && Array.isArray(args[0]) ? args[0] : args;
+  return flat.map(normalizeArg);
+}
+
+function createRawWrapper(
+  client: Client | Transaction,
+  beforeExecute?: () => Promise<void>
+): AppDatabase {
+  return {
+    prepare(sql: string): PreparedStatement {
+      return {
+        async all<T = Record<string, unknown>>(...args: unknown[]): Promise<T[]> {
+          if (beforeExecute) await beforeExecute();
+          const normalized = normalizeArgs(args);
+          const res = await client.execute({ sql, args: normalized as InArgs });
+          return res.rows as unknown as T[];
+        },
+        async get<T = Record<string, unknown>>(...args: unknown[]): Promise<T | undefined> {
+          if (beforeExecute) await beforeExecute();
+          const normalized = normalizeArgs(args);
+          const res = await client.execute({ sql, args: normalized as InArgs });
+          return (res.rows[0] as unknown as T) ?? undefined;
+        },
+        async run(...args: unknown[]): Promise<{ changes: number; lastInsertRowid?: number | bigint }> {
+          if (beforeExecute) await beforeExecute();
+          const normalized = normalizeArgs(args);
+          const res = await client.execute({ sql, args: normalized as InArgs });
+          return {
+            changes: res.rowsAffected,
+            lastInsertRowid: res.lastInsertRowid,
+          };
+        },
+      };
+    },
+    async exec(sql: string): Promise<void> {
+      if (beforeExecute) await beforeExecute();
+      const trimmed = sql.trim().toUpperCase();
+      if (
+        trimmed === "BEGIN" ||
+        trimmed === "COMMIT" ||
+        trimmed === "ROLLBACK" ||
+        trimmed.startsWith("PRAGMA")
+      ) {
+        return;
+      }
+      await client.executeMultiple(sql);
+    },
+    async transaction<T>(fn: (tx: AppDatabase) => Promise<T>): Promise<T> {
+      if (beforeExecute) await beforeExecute();
+      if ("transaction" in client && typeof client.transaction === "function") {
+        const tx = await client.transaction("write");
+        try {
+          const res = await fn(createRawWrapper(tx));
+          await tx.commit();
+          return res;
+        } catch (err) {
+          try {
+            await tx.rollback();
+          } catch {
+            // ignore
+          }
+          throw err;
+        }
+      } else {
+        return fn(this);
+      }
+    },
+  };
+}
+
+const initializedTargets = new Set<string>();
+
+function createDatabaseWrapper(
+  client: Client,
+  targetPath: string,
+  options?: { seedDemo?: boolean }
+): AppDatabase {
+  let initPromise: Promise<void> | null = null;
+
+  async function ensureInit(): Promise<void> {
+    if (targetPath !== ":memory:" && initializedTargets.has(targetPath)) return;
+    if (!initPromise) {
+      initPromise = (async () => {
+        try {
+          const raw = createRawWrapper(client);
+          await raw.exec(SCHEMA_SQL);
+          await migrateDatabaseSchema(raw);
+          await syncCanonicalCatalog(raw);
+          await syncBuiltinDecks(raw);
+          if (options?.seedDemo === true) {
+            await seedDemoWorkspaceIfMissing(raw);
+          } else if (targetPath !== ":memory:" && !isTursoConfigured()) {
+            await cleanupDemoDataFromDatabase(raw);
+          }
+          if (targetPath !== ":memory:") {
+            initializedTargets.add(targetPath);
+          }
+        } catch (err) {
+          console.error("Database initialization error:", err);
+          throw err;
+        }
+      })();
+    }
+    await initPromise;
+  }
+
+  return createRawWrapper(client, ensureInit);
+}
+
 export function createDatabaseInstance(
   targetPath: string,
   options?: { seedDemo?: boolean }
-): DatabaseSync {
-  let finalPath = targetPath;
+): AppDatabase {
+  let url: string;
+  let authToken: string | undefined = undefined;
 
-  if (finalPath !== ":memory:") {
-    const resolved = path.resolve(/*turbopackIgnore: true*/ finalPath);
+  if (targetPath.startsWith("libsql://") || targetPath.startsWith("https://")) {
+    url = targetPath;
+    authToken = process.env.TURSO_AUTH_TOKEN?.trim();
+  } else if (targetPath === ":memory:") {
+    url = "file::memory:";
+  } else {
+    const resolved = path.resolve(/*turbopackIgnore: true*/ targetPath);
     const dir = path.dirname(resolved);
     try {
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+      if (!fs.existsSync(/*turbopackIgnore: true*/ dir)) {
+        fs.mkdirSync(/*turbopackIgnore: true*/ dir, { recursive: true });
       }
-    } catch (err) {
-      // Fallback a /tmp si el directorio es de solo lectura (como en Vercel Serverless)
-      const tmpPath = path.join(os.tmpdir(), "grimorio.db");
-      console.warn(
-        `Aviso: No se pudo crear o acceder al directorio ${dir}. Usando fallback en ${tmpPath}.`,
-        err
-      );
-      finalPath = tmpPath;
-      const tmpDir = path.dirname(path.resolve(/*turbopackIgnore: true*/ tmpPath));
-      if (!fs.existsSync(tmpDir)) {
-        fs.mkdirSync(tmpDir, { recursive: true });
-      }
-    }
-  }
-
-  const db = new DatabaseSync(finalPath);
-  db.exec("PRAGMA foreign_keys = ON;");
-  if (finalPath !== ":memory:") {
-    db.exec("PRAGMA journal_mode = WAL;");
-    db.exec("PRAGMA busy_timeout = 5000;");
-  }
-
-  db.exec(SCHEMA_SQL);
-  migrateDatabaseSchema(db);
-  syncCanonicalCatalog(db);
-  syncBuiltinDecks(db);
-
-  if (options?.seedDemo === true) {
-    seedDemoWorkspaceIfMissing(db);
-  } else if (finalPath !== ":memory:") {
-    cleanupDemoDataFromDatabase(db);
-  }
-
-  return db;
-}
-
-const globalForDb = globalThis as unknown as {
-  __grimorioDb?: DatabaseSync;
-  __grimorioDbPath?: string;
-  __grimorioDemoDb?: DatabaseSync;
-};
-
-export function getDemoDb(): DatabaseSync {
-  if (!globalForDb.__grimorioDemoDb) {
-    globalForDb.__grimorioDemoDb = createDatabaseInstance(":memory:", {
-      seedDemo: true,
-    });
-  }
-  return globalForDb.__grimorioDemoDb;
-}
-
-export function resetDemoDb(): void {
-  if (globalForDb.__grimorioDemoDb) {
-    try {
-      globalForDb.__grimorioDemoDb.close();
     } catch {
       // ignore
     }
+    url = "file:" + resolved;
   }
-  globalForDb.__grimorioDemoDb = createDatabaseInstance(":memory:", {
-    seedDemo: true,
-  });
+
+  const client = createClient({ url, authToken });
+  return createDatabaseWrapper(client, targetPath, options);
 }
 
-export function getDb(userId?: string): DatabaseSync {
+const globalForDb = globalThis as unknown as {
+  __grimorioDb?: AppDatabase;
+  __grimorioDbPath?: string;
+  __grimorioDemoDb?: AppDatabase;
+  __grimorioDemoDbPath?: string;
+};
+
+export function getDemoDb(): AppDatabase {
+  const demoPath = resolveDemoDatabasePath();
+  if (
+    globalForDb.__grimorioDemoDb &&
+    globalForDb.__grimorioDemoDbPath === demoPath
+  ) {
+    return globalForDb.__grimorioDemoDb;
+  }
+  const db = createDatabaseInstance(demoPath, {
+    seedDemo: true,
+  });
+  globalForDb.__grimorioDemoDb = db;
+  globalForDb.__grimorioDemoDbPath = demoPath;
+  return db;
+}
+
+export function resetDemoDb(): void {
+  delete globalForDb.__grimorioDemoDb;
+  delete globalForDb.__grimorioDemoDbPath;
+}
+
+export function getDb(userId?: string): AppDatabase {
   if (userId === DEMO_USER_ID) {
     return getDemoDb();
   }
@@ -1351,6 +1494,7 @@ export function getDb(userId?: string): DatabaseSync {
 
 export function getEnvironmentStatus(): {
   databasePath: string;
+  isTurso: boolean;
   hasCustomSessionSecret: boolean;
 } {
   const databasePath = resolveDatabasePath();
@@ -1359,7 +1503,8 @@ export function getEnvironmentStatus(): {
     process.env.SESSION_SECRET?.trim() ||
     "";
   return {
-    databasePath,
+    databasePath: isTursoConfigured() ? "Turso Cloud (" + databasePath.replace(/^libsql:\/\//, "") + ")" : databasePath,
+    isTurso: isTursoConfigured(),
     hasCustomSessionSecret:
       secret.length >= 32 &&
       secret !== "reemplazar-por-clave-secreta-de-al-menos-32-caracteres-en-produccion",

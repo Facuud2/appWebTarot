@@ -26,10 +26,10 @@ export default async function OnboardingPage(props: {
     redirect("/");
   }
 
-  const decks = listAvailableDecks(user.id);
+  const decks = await listAvailableDecks(user.id);
   const canonicalCards = listCanonicalCards();
-  const spreads = listSpreadTemplates(user.id);
-  const consultants = listConsultants(user.id);
+  const spreads = await listSpreadTemplates(user.id);
+  const consultants = await listConsultants(user.id);
 
   return (
     <OnboardingWizard

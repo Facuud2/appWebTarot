@@ -19,7 +19,7 @@ import { requireUser } from "@/server/session";
 
 export default async function HomePage() {
   const user = await requireUser();
-  const snapshot = getDashboardSnapshot(user.id);
+  const snapshot = await getDashboardSnapshot(user.id);
   const cards = listCanonicalCards();
   const cardSlugById = new Map(cards.map((c) => [c.id, c]));
 

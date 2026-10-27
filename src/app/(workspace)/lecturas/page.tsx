@@ -73,11 +73,11 @@ export default async function ReadingsArchivePage({
     dateTo: params.to,
   };
 
-  const readings = listReadings(user.id, filters);
+  const readings = await listReadings(user.id, filters);
   const cards = listCanonicalCards();
-  const consultants = listConsultants(user.id, { includeArchived: true });
-  const decks = listDecks(user.id);
-  const tags = listUserTags(user.id);
+  const consultants = await listConsultants(user.id, { includeArchived: true });
+  const decks = await listDecks(user.id);
+  const tags = await listUserTags(user.id);
 
   return (
     <div className="space-y-6">

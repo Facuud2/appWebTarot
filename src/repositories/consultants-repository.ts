@@ -1,14 +1,13 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
 import { deterministicAvatarHue } from "@/lib/utils";
 import { listAppointmentsForConsultant } from "@/repositories/appointments-repository";
 import { mapCanonicalCardRow, type CanonicalCardRow } from "@/repositories/grimorio-repository";
 import { listReadings } from "@/repositories/readings-repository";
 import { getTagsForEntity, syncEntityTags } from "@/repositories/tags-repository";
 import type { ConsultantFormValues } from "@/schemas/domain";
-import { getDb } from "@/server/db";
+import { getDb, type AppDatabase } from "@/server/db";
 import type { Consultant, ConsultantDetail } from "@/types/domain";
 
 interface ConsultantRow {
@@ -31,13 +30,14 @@ interface ConsultantRow {
   last_reading_at: string | null;
 }
 
-function mapConsultantRow(
+async function mapConsultantRow(
   row: ConsultantRow,
   userId: string,
-  db: DatabaseSync
-): Consultant {
+  db: AppDatabase
+): Promise<Consultant> {
   const displayName =
     row.alias && row.alias.trim().length > 0 ? row.alias.trim() : row.full_name;
+  const tags = await getTagsForEntity(userId, "consultant", row.id, db);
   return {
     id: row.id,
     userId: row.user_id,
@@ -53,7 +53,7 @@ function mapConsultantRow(
     archivedAt: row.archived_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    tags: getTagsForEntity(userId, "consultant", row.id, db),
+    tags,
     readingsCount: Number(row.readings_count ?? 0),
     upcomingAppointmentsCount: Number(row.upcoming_appointments_count ?? 0),
     lastReadingAt: row.last_reading_at,
@@ -68,11 +68,11 @@ export interface ListConsultantsOptions {
   onlyArchived?: boolean;
 }
 
-export function listConsultants(
+export async function listConsultants(
   userId: string,
   options: ListConsultantsOptions = {},
-  db: DatabaseSync = getDb(userId)
-): Consultant[] {
+  db: AppDatabase = getDb(userId)
+): Promise<Consultant[]> {
   const nowIso = new Date().toISOString();
   const params: Array<string | number> = [nowIso, userId];
   const conditions: string[] = ["c.user_id = ?"];
@@ -116,17 +116,17 @@ export function listConsultants(
     ORDER BY COALESCE(last_reading_at, c.updated_at) DESC
   `;
 
-  const rows = db.prepare(sql).all(...params) as unknown as ConsultantRow[];
-  return rows.map((row) => mapConsultantRow(row, userId, db));
+  const rows = (await db.prepare(sql).all(...params)) as unknown as ConsultantRow[];
+  return Promise.all(rows.map((row) => mapConsultantRow(row, userId, db)));
 }
 
-export function getConsultantById(
+export async function getConsultantById(
   userId: string,
   consultantId: string,
-  db: DatabaseSync = getDb(userId)
-): Consultant | null {
+  db: AppDatabase = getDb(userId)
+): Promise<Consultant | null> {
   const nowIso = new Date().toISOString();
-  const row = db
+  const row = (await db
     .prepare(
       `SELECT
          c.*,
@@ -136,29 +136,29 @@ export function getConsultantById(
        FROM consultants c
        WHERE c.user_id = ? AND c.id = ?`
     )
-    .get(nowIso, userId, consultantId) as ConsultantRow | undefined;
+    .get(nowIso, userId, consultantId)) as ConsultantRow | undefined;
 
   if (!row) return null;
   return mapConsultantRow(row, userId, db);
 }
 
-export function getConsultantDetail(
+export async function getConsultantDetail(
   userId: string,
   consultantId: string,
-  db: DatabaseSync = getDb(userId)
-): ConsultantDetail | null {
-  const consultant = getConsultantById(userId, consultantId, db);
+  db: AppDatabase = getDb(userId)
+): Promise<ConsultantDetail | null> {
+  const consultant = await getConsultantById(userId, consultantId, db);
   if (!consultant) return null;
 
-  const readings = listReadings(userId, { consultantId }, db);
-  const appointments = listAppointmentsForConsultant(userId, consultantId, db);
+  const readings = await listReadings(userId, { consultantId }, db);
+  const appointments = await listAppointmentsForConsultant(userId, consultantId, db);
 
   interface FreqCardRow extends CanonicalCardRow {
     appearances_count: number;
     last_seen_at: string;
   }
 
-  const freqRows = db
+  const freqRows = (await db
     .prepare(
       `SELECT
          cc.*,
@@ -172,7 +172,7 @@ export function getConsultantDetail(
        ORDER BY appearances_count DESC, last_seen_at DESC
        LIMIT 6`
     )
-    .all(userId, consultantId) as unknown as FreqCardRow[];
+    .all(userId, consultantId)) as unknown as FreqCardRow[];
 
   return {
     consultant,
@@ -186,20 +186,20 @@ export function getConsultantDetail(
   };
 }
 
-export function createConsultant(
+export async function createConsultant(
   userId: string,
   values: ConsultantFormValues,
-  db: DatabaseSync = getDb(userId),
+  db: AppDatabase = getDb(userId),
   options?: { needsSetup?: boolean }
-): Consultant {
+): Promise<Consultant> {
   const id = `cons-${randomUUID()}`;
   const nowIso = new Date().toISOString();
   const hue = deterministicAvatarHue(values.alias || values.fullName);
   const needsSetupInt = options?.needsSetup ? 1 : 0;
 
-  db.exec("BEGIN");
+  await db.exec("BEGIN");
   try {
-    db.prepare(
+    await db.prepare(
       `INSERT INTO consultants (
         id, user_id, full_name, alias, email, phone, preferred_channel,
         context_notes, personal_notes, avatar_hue, needs_setup, archived_at, created_at, updated_at
@@ -220,25 +220,25 @@ export function createConsultant(
       nowIso
     );
 
-    syncEntityTags(userId, "consultant", id, values.tags, "consultant", db);
-    db.exec("COMMIT");
+    await syncEntityTags(userId, "consultant", id, values.tags, "consultant", db);
+    await db.exec("COMMIT");
   } catch (err) {
-    db.exec("ROLLBACK");
+    await db.exec("ROLLBACK");
     throw err;
   }
 
-  const created = getConsultantById(userId, id, db);
+  const created = await getConsultantById(userId, id, db);
   if (!created) {
     throw new Error("No se pudo recuperar la ficha del consultante creado.");
   }
   return created;
 }
 
-export function createQuickConsultant(
+export async function createQuickConsultant(
   userId: string,
   rawName: string,
-  db: DatabaseSync = getDb(userId)
-): Consultant {
+  db: AppDatabase = getDb(userId)
+): Promise<Consultant> {
   const cleanName = rawName.trim();
   return createConsultant(
     userId,
@@ -257,21 +257,21 @@ export function createQuickConsultant(
   );
 }
 
-export function updateConsultant(
+export async function updateConsultant(
   userId: string,
   consultantId: string,
   values: ConsultantFormValues,
-  db: DatabaseSync = getDb(userId)
-): Consultant {
-  const existing = getConsultantById(userId, consultantId, db);
+  db: AppDatabase = getDb(userId)
+): Promise<Consultant> {
+  const existing = await getConsultantById(userId, consultantId, db);
   if (!existing) {
     throw new Error("El consultante solicitado no existe o no tienes acceso.");
   }
 
   const nowIso = new Date().toISOString();
-  db.exec("BEGIN");
+  await db.exec("BEGIN");
   try {
-    db.prepare(
+    await db.prepare(
       `UPDATE consultants
        SET full_name = ?,
            alias = ?,
@@ -296,7 +296,7 @@ export function updateConsultant(
       consultantId
     );
 
-    syncEntityTags(
+    await syncEntityTags(
       userId,
       "consultant",
       consultantId,
@@ -304,27 +304,27 @@ export function updateConsultant(
       "consultant",
       db
     );
-    db.exec("COMMIT");
+    await db.exec("COMMIT");
   } catch (err) {
-    db.exec("ROLLBACK");
+    await db.exec("ROLLBACK");
     throw err;
   }
 
-  const updated = getConsultantById(userId, consultantId, db);
+  const updated = await getConsultantById(userId, consultantId, db);
   if (!updated) {
     throw new Error("No se pudo recuperar el consultante actualizado.");
   }
   return updated;
 }
 
-export function setConsultantArchived(
+export async function setConsultantArchived(
   userId: string,
   consultantId: string,
   archived: boolean,
-  db: DatabaseSync = getDb(userId)
-): Consultant {
+  db: AppDatabase = getDb(userId)
+): Promise<Consultant> {
   const nowIso = new Date().toISOString();
-  const res = db
+  const res = await db
     .prepare(
       `UPDATE consultants
        SET archived_at = ?, updated_at = ?
@@ -336,36 +336,36 @@ export function setConsultantArchived(
     throw new Error("No se encontró el consultante para actualizar su archivo.");
   }
 
-  const updated = getConsultantById(userId, consultantId, db);
+  const updated = await getConsultantById(userId, consultantId, db);
   if (!updated) {
     throw new Error("No se pudo leer el consultante actualizado.");
   }
   return updated;
 }
 
-export function deleteConsultant(
+export async function deleteConsultant(
   userId: string,
   consultantId: string,
-  db: DatabaseSync = getDb(userId)
-): void {
-  db.exec("BEGIN");
+  db: AppDatabase = getDb(userId)
+): Promise<void> {
+  await db.exec("BEGIN");
   try {
-    db.prepare(
+    await db.prepare(
       `DELETE FROM entity_tags
        WHERE entity_type = 'consultant' AND entity_id = ?
          AND tag_id IN (SELECT id FROM tags WHERE user_id = ?)`
     ).run(consultantId, userId);
 
-    const res = db
+    const res = await db
       .prepare("DELETE FROM consultants WHERE user_id = ? AND id = ?")
       .run(userId, consultantId);
 
     if (res.changes === 0) {
       throw new Error("No se encontró el consultante para eliminar.");
     }
-    db.exec("COMMIT");
+    await db.exec("COMMIT");
   } catch (err) {
-    db.exec("ROLLBACK");
+    await db.exec("ROLLBACK");
     throw err;
   }
 }

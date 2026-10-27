@@ -15,7 +15,7 @@ export default async function WorkspaceLayout({
     redirect("/onboarding");
   }
 
-  const snapshot = getDashboardSnapshot(user.id);
+  const snapshot = await getDashboardSnapshot(user.id);
 
   return (
     <AppShell

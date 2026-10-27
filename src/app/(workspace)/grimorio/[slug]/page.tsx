@@ -46,7 +46,7 @@ export default async function GrimorioCardDetailPage({
   const user = await requireUser();
   const { slug } = await params;
 
-  const detail = getGrimorioCardBySlug(user.id, slug);
+  const detail = await getGrimorioCardBySlug(user.id, slug);
   if (!detail) {
     notFound();
   }
@@ -59,8 +59,8 @@ export default async function GrimorioCardDetailPage({
       ? allCards[currentIdx + 1]
       : null;
 
-  const decks = listDecks(user.id);
-  const tagSuggestions = listUserTags(user.id).map((t) => t.name);
+  const decks = await listDecks(user.id);
+  const tagSuggestions = (await listUserTags(user.id)).map((t) => t.name);
 
   const generalPersonalEntry =
     detail.personalEntries.find((e) => e.deckId === null) ??

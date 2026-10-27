@@ -14,9 +14,9 @@ export const metadata: Metadata = {
 
 export default async function PhenomenaObservatoryPage() {
   const user = await requireUser();
-  const events = listDeckEventsWithContext(user.id);
+  const events = await listDeckEventsWithContext(user.id);
   const cards = listCanonicalCards();
-  const tags = listUserTags(user.id);
+  const tags = await listUserTags(user.id);
 
   return (
     <div className="space-y-6">

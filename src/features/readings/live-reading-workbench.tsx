@@ -1325,6 +1325,8 @@ export function LiveReadingWorkbench({
                 slots={mapSlots}
                 activePositionIndex={activePositionIndex}
                 onSelectPosition={setActivePositionIndex}
+                editable
+                onMovePosition={handleMoveMapPosition}
               />
             </section>
 

@@ -16,8 +16,8 @@ export default async function AgendaPage({
   const user = await requireUser();
   const params = await searchParams;
 
-  const appointments = listAppointments(user.id, { ascending: true });
-  const consultants = listConsultants(user.id, { includeArchived: false });
+  const appointments = await listAppointments(user.id, { ascending: true });
+  const consultants = await listConsultants(user.id, { includeArchived: false });
   const initialNowIso = new Date().toISOString();
 
   return (

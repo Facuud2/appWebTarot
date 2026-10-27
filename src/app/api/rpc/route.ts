@@ -114,7 +114,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           error: "Revisa los datos de acceso ingresados.",
         });
       }
-      const user = authenticateUser(parsed.data);
+      const user = await authenticateUser(parsed.data);
       if (!user) {
         return jsonResult({
           ok: false,
@@ -140,7 +140,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           error: "Revisa los campos obligatorios para crear tu cuenta.",
         });
       }
-      const user = registerNewUser(parsed.data);
+      const user = await registerNewUser(parsed.data);
       const session = await createUserSession(user, request);
       safeRevalidatePath("/", "layout");
       const res = jsonResult({
@@ -153,7 +153,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     if (op === "auth.demo") {
-      const demoUser = getDemoUser();
+      const demoUser = await getDemoUser();
       const session = await createUserSession(demoUser, request);
       safeRevalidatePath("/", "layout");
       const res = jsonResult({
@@ -198,7 +198,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             error: "Revisa los campos de la ficha del consultante.",
           });
         }
-        const created = createConsultant(user.id, parsed.data);
+        const created = await createConsultant(user.id, parsed.data);
         safeRevalidatePath("/");
         safeRevalidatePath("/consultantes");
         safeRevalidatePath("/agenda");
@@ -220,7 +220,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             error: "Revisa los datos ingresados en la ficha.",
           });
         }
-        const updated = updateConsultant(
+        const updated = await updateConsultant(
           user.id,
           body.data.consultantId,
           body.data.input
@@ -243,7 +243,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         if (!body.success) {
           return jsonResult({ ok: false, error: "Datos no válidos." });
         }
-        const updated = setConsultantArchived(
+        const updated = await setConsultantArchived(
           user.id,
           body.data.consultantId,
           body.data.archived
@@ -267,7 +267,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         if (!body.success) {
           return jsonResult({ ok: false, error: "Consultante no válido." });
         }
-        deleteConsultant(user.id, body.data.consultantId);
+        await deleteConsultant(user.id, body.data.consultantId);
         safeRevalidatePath("/");
         safeRevalidatePath("/consultantes");
         safeRevalidatePath("/agenda");
@@ -289,7 +289,7 @@ export async function POST(request: Request): Promise<NextResponse> {
               "Revisa la fecha y el consultante de la cita.",
           });
         }
-        const created = createAppointment(user.id, parsed.data);
+        const created = await createAppointment(user.id, parsed.data);
         safeRevalidatePath("/");
         safeRevalidatePath("/agenda");
         safeRevalidatePath(`/consultantes/${created.consultantId}`);
@@ -314,7 +314,7 @@ export async function POST(request: Request): Promise<NextResponse> {
               body.error.issues[0]?.message ?? "Revisa los campos de la cita.",
           });
         }
-        const updated = updateAppointment(
+        const updated = await updateAppointment(
           user.id,
           body.data.appointmentId,
           body.data.input
@@ -339,7 +339,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         if (!body.success) {
           return jsonResult({ ok: false, error: "Estado de cita no válido." });
         }
-        const updated = updateAppointmentStatus(
+        const updated = await updateAppointmentStatus(
           user.id,
           body.data.appointmentId,
           body.data.status
@@ -361,7 +361,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         if (!body.success) {
           return jsonResult({ ok: false, error: "Cita no válida." });
         }
-        deleteAppointment(user.id, body.data.appointmentId);
+        await deleteAppointment(user.id, body.data.appointmentId);
         safeRevalidatePath("/");
         safeRevalidatePath("/agenda");
         safeRevalidatePath("/consultantes");
@@ -382,9 +382,10 @@ export async function POST(request: Request): Promise<NextResponse> {
               "Revisa los datos iniciales de la lectura.",
           });
         }
-        const created = createReadingDraft(user.id, parsed.data);
+        const created = await createReadingDraft(user.id, parsed.data);
         safeRevalidatePath("/");
         safeRevalidatePath("/lecturas");
+        safeRevalidatePath(`/lecturas/${created.id}`);
         safeRevalidatePath("/grimorio");
         safeRevalidatePath("/agenda");
         if (created.consultantId) {
@@ -407,7 +408,7 @@ export async function POST(request: Request): Promise<NextResponse> {
               "Revisa que cada posición registrada tenga carta y nombre válidos.",
           });
         }
-        const updated = updateReadingSession(user.id, parsed.data);
+        const updated = await updateReadingSession(user.id, parsed.data);
         safeRevalidatePath("/");
         safeRevalidatePath("/lecturas");
         safeRevalidatePath(`/lecturas/${updated.id}`);
@@ -430,7 +431,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         if (!body.success) {
           return jsonResult({ ok: false, error: "Lectura no válida." });
         }
-        deleteReading(user.id, body.data.readingId);
+        await deleteReading(user.id, body.data.readingId);
         safeRevalidatePath("/");
         safeRevalidatePath("/lecturas");
         safeRevalidatePath("/fenomenos");
@@ -452,7 +453,7 @@ export async function POST(request: Request): Promise<NextResponse> {
               "Describe qué ocurrió con el mazo.",
           });
         }
-        const event = createDeckEvent(user.id, parsed.data);
+        const event = await createDeckEvent(user.id, parsed.data);
         safeRevalidatePath("/");
         safeRevalidatePath(`/lecturas/${parsed.data.readingId}`);
         safeRevalidatePath("/fenomenos");
@@ -474,7 +475,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         if (!body.success) {
           return jsonResult({ ok: false, error: "Evento no válido." });
         }
-        deleteDeckEvent(user.id, body.data.eventId);
+        await deleteDeckEvent(user.id, body.data.eventId);
         safeRevalidatePath(`/lecturas/${body.data.readingId}`);
         safeRevalidatePath("/fenomenos");
         safeRevalidatePath("/grimorio");
@@ -500,7 +501,7 @@ export async function POST(request: Request): Promise<NextResponse> {
               "Revisa los campos de las notas de la carta.",
           });
         }
-        const saved = upsertPersonalCardEntry(user.id, body.data.input);
+        const saved = await upsertPersonalCardEntry(user.id, body.data.input);
         safeRevalidatePath("/");
         safeRevalidatePath("/grimorio");
         safeRevalidatePath(`/grimorio/${body.data.slug}`);
@@ -519,7 +520,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             error: parsed.error.issues[0]?.message ?? "Revisa los datos del mazo.",
           });
         }
-        const created = createDeck(user.id, parsed.data);
+        const created = await createDeck(user.id, parsed.data);
         safeRevalidatePath("/");
         safeRevalidatePath("/grimorio");
         safeRevalidatePath("/ajustes");
@@ -548,7 +549,7 @@ export async function POST(request: Request): Promise<NextResponse> {
               body.error.issues[0]?.message ?? "Nombre de mazo inválido.",
           });
         }
-        const created = createQuickDeck(user.id, body.data.name);
+        const created = await createQuickDeck(user.id, body.data.name);
         safeRevalidatePath("/");
         safeRevalidatePath("/grimorio");
         safeRevalidatePath("/ajustes");
@@ -574,7 +575,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             error: body.error.issues[0]?.message ?? "Revisa los datos del mazo.",
           });
         }
-        const updated = updateDeck(user.id, body.data.deckId, body.data.input);
+        const updated = await updateDeck(user.id, body.data.deckId, body.data.input);
         safeRevalidatePath("/");
         safeRevalidatePath("/grimorio");
         safeRevalidatePath("/ajustes");
@@ -591,7 +592,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         if (!body.success) {
           return jsonResult({ ok: false, error: "Mazo no válido." });
         }
-        deleteDeck(user.id, body.data.deckId);
+        await deleteDeck(user.id, body.data.deckId);
         safeRevalidatePath("/");
         safeRevalidatePath("/grimorio");
         safeRevalidatePath("/ajustes");
@@ -612,7 +613,7 @@ export async function POST(request: Request): Promise<NextResponse> {
               "Revisa el nombre y las posiciones de la tirada.",
           });
         }
-        const created = createSpreadTemplate(user.id, parsed.data);
+        const created = await createSpreadTemplate(user.id, parsed.data);
         safeRevalidatePath("/grimorio");
         safeRevalidatePath("/ajustes");
         safeRevalidatePath("/lecturas/nueva");
@@ -628,7 +629,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         if (!body.success) {
           return jsonResult({ ok: false, error: "Estructura no válida." });
         }
-        deleteSpreadTemplate(user.id, body.data.spreadId);
+        await deleteSpreadTemplate(user.id, body.data.spreadId);
         safeRevalidatePath("/grimorio");
         safeRevalidatePath("/ajustes");
         return jsonResult({
@@ -648,7 +649,7 @@ export async function POST(request: Request): Promise<NextResponse> {
               "Revisa los datos del paso de onboarding.",
           });
         }
-        const updatedUser = saveUserOnboardingProgress(user.id, parsed.data);
+        const updatedUser = await saveUserOnboardingProgress(user.id, parsed.data);
         const session = await createUserSession(updatedUser, request);
         safeRevalidatePath("/", "layout");
         safeRevalidatePath("/onboarding");
@@ -662,7 +663,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
 
       case "onboarding.complete": {
-        const updatedUser = completeUserOnboarding(user.id);
+        const updatedUser = await completeUserOnboarding(user.id);
         const session = await createUserSession(updatedUser, request);
         safeRevalidatePath("/", "layout");
         safeRevalidatePath("/onboarding");
@@ -676,7 +677,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
 
       case "onboarding.reset": {
-        const updatedUser = resetUserOnboarding(user.id);
+        const updatedUser = await resetUserOnboarding(user.id);
         const session = await createUserSession(updatedUser, request);
         safeRevalidatePath("/", "layout");
         safeRevalidatePath("/onboarding");
@@ -699,7 +700,7 @@ export async function POST(request: Request): Promise<NextResponse> {
               "Revisa los campos de configuración.",
           });
         }
-        const updated = updateUserWorkspaceProfile(user.id, parsed.data);
+        const updated = await updateUserWorkspaceProfile(user.id, parsed.data);
         const session = await createUserSession(updated, request);
         safeRevalidatePath("/", "layout");
         safeRevalidatePath("/ajustes");
@@ -731,7 +732,7 @@ export async function POST(request: Request): Promise<NextResponse> {
             error: "El archivo seleccionado no contiene un formato JSON válido.",
           });
         }
-        const result = importWorkspaceBackup(user.id, decoded);
+        const result = await importWorkspaceBackup(user.id, decoded);
         safeRevalidatePath("/", "layout");
         return jsonResult({
           ok: true,

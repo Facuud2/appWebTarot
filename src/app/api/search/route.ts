@@ -9,7 +9,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   const query = request.nextUrl.searchParams.get("q") ?? "";
-  const results = executeGlobalSearch(user.id, query);
+  const results = await executeGlobalSearch(user.id, query);
   return NextResponse.json(results, {
     headers: { "Cache-Control": "no-store" },
   });

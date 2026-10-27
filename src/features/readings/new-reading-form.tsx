@@ -7,7 +7,9 @@ import { useForm, useWatch } from "react-hook-form";
 import {
   ArrowRight,
   Layers,
+  Minus,
   Plus,
+  RotateCcw,
   Sparkles,
   X,
 } from "lucide-react";
@@ -84,6 +86,7 @@ export function NewReadingForm({
 }: NewReadingFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
+  const [activeCustomIndex, setActiveCustomIndex] = React.useState<number | null>(null);
   const [registerNewDeckChecked, setRegisterNewDeckChecked] =
     React.useState(false);
   const [pendingDeckName, setPendingDeckName] = React.useState("");
@@ -237,6 +240,87 @@ export function NewReadingForm({
     }
   };
 
+  const handleMoveCustomPosition = (
+    positionIndex: number,
+    coordX: number,
+    coordY: number
+  ) => {
+    const current = form.getValues("customPositions");
+    const updated = current.map((p) =>
+      p.positionIndex === positionIndex ? { ...p, coordX, coordY } : p
+    );
+    form.setValue("customPositions", updated, { shouldDirty: true });
+  };
+
+  const addCustomPosition = () => {
+    const current = form.getValues("customPositions");
+    if (current.length >= 10) {
+      toast.error("El tapete admite un máximo de 10 cartas.");
+      return;
+    }
+    const nextIdx = current.length + 1;
+    const newPositions = [
+      ...current,
+      {
+        positionIndex: nextIdx,
+        title: `Carta ${nextIdx}`,
+        prompt: "Significado o propósito de esta posición",
+        coordX: 50,
+        coordY: 50,
+      },
+    ];
+    const redistributed = newPositions.map((pos, idx) => ({
+      ...pos,
+      positionIndex: idx + 1,
+      coordX: Math.round(15 + (idx / Math.max(1, newPositions.length - 1)) * 70),
+    }));
+    form.setValue("customPositions", redistributed, { shouldDirty: true });
+    setActiveCustomIndex(nextIdx);
+  };
+
+  const removeCustomPosition = (indexToRemove: number) => {
+    const current = form.getValues("customPositions");
+    if (current.length <= 1) {
+      toast.error("La estructura debe tener al menos una posición.");
+      return;
+    }
+    const filtered = current.filter((p) => p.positionIndex !== indexToRemove);
+    const reindexed = filtered.map((pos, idx) => ({
+      ...pos,
+      positionIndex: idx + 1,
+      coordX:
+        filtered.length === 1
+          ? 50
+          : Math.round(15 + (idx / (filtered.length - 1)) * 70),
+    }));
+    form.setValue("customPositions", reindexed, { shouldDirty: true });
+    if (activeCustomIndex === indexToRemove) {
+      setActiveCustomIndex(null);
+    }
+  };
+
+  const updateCustomPositionTitle = (positionIndex: number, title: string) => {
+    const current = form.getValues("customPositions");
+    const updated = current.map((p) =>
+      p.positionIndex === positionIndex ? { ...p, title } : p
+    );
+    form.setValue("customPositions", updated, { shouldDirty: true });
+  };
+
+  const updateCustomPositionPrompt = (positionIndex: number, prompt: string) => {
+    const current = form.getValues("customPositions");
+    const updated = current.map((p) =>
+      p.positionIndex === positionIndex ? { ...p, prompt } : p
+    );
+    form.setValue("customPositions", updated, { shouldDirty: true });
+  };
+
+  const resetCustomPositions = () => {
+    form.setValue("customPositions", DEFAULT_CUSTOM_POSITIONS, {
+      shouldDirty: true,
+    });
+    setActiveCustomIndex(null);
+  };
 
   const onSubmit = form.handleSubmit((values) => {
     const inlineConsultant = quickConsultantName.trim();
@@ -282,6 +366,7 @@ export function NewReadingForm({
         toast.success(res.message ?? "Mesa de lectura abierta.");
       }
       router.push(`/lecturas/${res.data.id}`);
+      router.refresh();
     });
   });
 
@@ -619,7 +704,7 @@ export function NewReadingForm({
               </h2>
               <p className="text-xs text-muted leading-relaxed">
                 {watchedSpreadMode === "custom"
-                  ? "En el siguiente paso podrás arrastrar, añadir y definir cada carta y posición directamente en el tapete interactivo."
+                  ? "Arrastra las cartas directamente en el tapete o pulsa «Mover cartas» en móvil para acomodarlas a tu gusto."
                   : selectedSpread?.description}
               </p>
             </div>
@@ -631,9 +716,118 @@ export function NewReadingForm({
 
           <SpreadMap
             slots={previewSlots}
-            activePositionIndex={null}
-            editable={false}
+            activePositionIndex={activeCustomIndex}
+            onSelectPosition={(idx) => setActiveCustomIndex(idx)}
+            editable={watchedSpreadMode === "custom"}
+            onMovePosition={
+              watchedSpreadMode === "custom"
+                ? handleMoveCustomPosition
+                : undefined
+            }
           />
+
+          {watchedSpreadMode === "custom" ? (
+            <div className="border-t border-border pt-3 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold text-ink">
+                  Posiciones en la mesa ({watchedCustomPositions.length})
+                </h3>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={addCustomPosition}
+                    className="h-7 px-2 text-xs"
+                    disabled={watchedCustomPositions.length >= 10}
+                  >
+                    <Plus className="size-3 mr-1" aria-hidden="true" />
+                    <span>Añadir carta</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() =>
+                      removeCustomPosition(watchedCustomPositions.length)
+                    }
+                    className="h-7 px-2 text-xs text-muted hover:text-ink"
+                    disabled={watchedCustomPositions.length <= 1}
+                  >
+                    <Minus className="size-3 mr-1" aria-hidden="true" />
+                    <span>Quitar última</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={resetCustomPositions}
+                    className="h-7 px-2 text-xs text-muted hover:text-ink"
+                    title="Restablecer a 3 cartas"
+                  >
+                    <RotateCcw className="size-3" aria-hidden="true" />
+                    <span className="sr-only">Restablecer</span>
+                  </Button>
+                </div>
+              </div>
+
+              {/* Lista editable de posiciones */}
+              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                {watchedCustomPositions.map((pos) => {
+                  const isSelected = activeCustomIndex === pos.positionIndex;
+                  return (
+                    <div
+                      key={pos.positionIndex}
+                      onClick={() => setActiveCustomIndex(pos.positionIndex)}
+                      className={cn(
+                        "rounded-lg border p-2.5 transition-colors cursor-pointer space-y-2 text-xs",
+                        isSelected
+                          ? "border-accent bg-accent/5 ring-1 ring-accent/30"
+                          : "border-border bg-surface hover:border-border-hover"
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <span className="inline-flex size-5 items-center justify-center rounded-full bg-ground border border-border text-[11px] font-medium text-ink shrink-0 num-tabular">
+                            {pos.positionIndex}
+                          </span>
+                          <input
+                            type="text"
+                            value={pos.title}
+                            onChange={(e) =>
+                              updateCustomPositionTitle(
+                                pos.positionIndex,
+                                e.target.value
+                              )
+                            }
+                            onClick={(e) => e.stopPropagation()}
+                            placeholder={`Carta ${pos.positionIndex}`}
+                            className="flex-1 bg-transparent font-medium text-ink focus:outline-none focus:underline"
+                          />
+                        </div>
+                        <span className="text-[10px] text-muted num-tabular shrink-0">
+                          X:{Math.round(pos.coordX)}% Y:{Math.round(pos.coordY)}%
+                        </span>
+                      </div>
+                      <input
+                        type="text"
+                        value={pos.prompt}
+                        onChange={(e) =>
+                          updateCustomPositionPrompt(
+                            pos.positionIndex,
+                            e.target.value
+                          )
+                        }
+                        onClick={(e) => e.stopPropagation()}
+                        placeholder="Significado o enfoque de esta carta (opcional)"
+                        className="w-full text-xs text-muted placeholder:text-muted/60 bg-transparent focus:outline-none focus:text-ink"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
 
           {watchedSpreadMode === "classic" &&
           selectedSpread &&

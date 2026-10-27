@@ -23,18 +23,18 @@ export default async function ReadingDetailPage({
   const user = await requireUser();
   const { id } = await params;
 
-  const reading = getReadingDetail(user.id, id);
+  const reading = await getReadingDetail(user.id, id);
   if (!reading) {
     notFound();
   }
 
   const cardsCatalog = listCanonicalCards();
-  const consultants = listConsultants(user.id, { includeArchived: true });
-  const decks = listDecks(user.id);
-  const classicSpreads = listSpreadTemplates(user.id).filter(
+  const consultants = await listConsultants(user.id, { includeArchived: true });
+  const decks = await listDecks(user.id);
+  const classicSpreads = (await listSpreadTemplates(user.id)).filter(
     (s) => s.isBuiltin
   );
-  const tagSuggestions = listUserTags(user.id).map((t) => t.name);
+  const tagSuggestions = (await listUserTags(user.id)).map((t) => t.name);
 
   return (
     <LiveReadingWorkbench

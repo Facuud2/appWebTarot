@@ -12,8 +12,8 @@ export const metadata: Metadata = {
 
 export default async function SettingsPage() {
   const user = await requireUser();
-  const decks = listAvailableDecks(user.id);
-  const spreads = listSpreadTemplates(user.id);
+  const decks = await listAvailableDecks(user.id);
+  const spreads = await listSpreadTemplates(user.id);
 
   return (
     <div className="space-y-6">

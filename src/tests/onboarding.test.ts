@@ -6,9 +6,9 @@ import { getDemoUser, registerNewUser } from "@/repositories/users-repository";
 import { getUserFromToken } from "@/server/session";
 
 describe("onboarding flow and persistence", () => {
-  it("initializes newly registered user with incomplete onboarding at step 1", () => {
+  it("initializes newly registered user with incomplete onboarding at step 1", async () => {
     const email = `onboarding-init-${Date.now()}@test.org`;
-    const user = registerNewUser({
+    const user = await registerNewUser({
       name: "Camila Tarotista",
       workspaceName: "Mesa de Camila",
       email,
@@ -23,8 +23,8 @@ describe("onboarding flow and persistence", () => {
     expect(user.preferences.onboarding?.selectedDeckId).toBeNull();
   });
 
-  it("ensures demo user is considered completed by default so workspace is not blocked", () => {
-    const demoUser = getDemoUser();
+  it("ensures demo user is considered completed by default so workspace is not blocked", async () => {
+    const demoUser = await getDemoUser();
     expect(demoUser.isDemo).toBe(true);
     expect(demoUser.preferences.onboarding?.completed).toBe(true);
   });
@@ -147,7 +147,7 @@ describe("onboarding flow and persistence", () => {
     expect(step4Res.status).toBe(200);
 
     // 6. Verificar persistencia recuperando la sesión desde token
-    const restored = getUserFromToken(token);
+    const restored = await getUserFromToken(token);
     expect(restored).not.toBeNull();
     expect(restored?.preferences.onboarding?.currentStep).toBe(5);
     expect(restored?.preferences.onboarding?.experienceLevel).toBe("intermediate");
@@ -177,15 +177,15 @@ describe("onboarding flow and persistence", () => {
     expect(completeJson.data?.preferences.onboarding?.completedAt).not.toBeNull();
   });
 
-  it("provides classic catalog decks (Rider, Marsella, Thoth, Lenormand, Living Wheel) for onboarding", () => {
-    const user = registerNewUser({
+  it("provides classic catalog decks (Rider, Marsella, Thoth, Lenormand, Living Wheel) for onboarding", async () => {
+    const user = await registerNewUser({
       name: "Tarotista Clásica",
       workspaceName: "Mesa Clásica",
       email: `classic-decks-${Date.now()}@test.org`,
       password: "clave-segura-classic",
     });
 
-    const availableDecks = listAvailableDecks(user.id);
+    const availableDecks = await listAvailableDecks(user.id);
     expect(availableDecks.length).toBeGreaterThanOrEqual(5);
 
     const traditions = availableDecks.map((d) => d.tradition);

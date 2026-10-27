@@ -21,13 +21,13 @@ export default async function ConsultantesPage({
   const showingArchived = params.archivados === "1";
   const openCreateInitially = params.nuevo === "1";
 
-  const consultants = listConsultants(user.id, {
+  const consultants = await listConsultants(user.id, {
     query: q,
     tag,
     onlyArchived: showingArchived,
   });
 
-  const allTags = listUserTags(user.id).map((t) => t.name);
+  const allTags = (await listUserTags(user.id)).map((t) => t.name);
 
   return (
     <ConsultantsDirectoryClient

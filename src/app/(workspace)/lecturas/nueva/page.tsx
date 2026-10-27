@@ -26,14 +26,14 @@ export default async function NewReadingPage({
   const user = await requireUser();
   const params = await searchParams;
 
-  const consultants = listConsultants(user.id, { includeArchived: false });
-  const decks = listAvailableDecks(user.id);
-  const classicSpreads = listSpreadTemplates(user.id).filter(
+  const consultants = await listConsultants(user.id, { includeArchived: false });
+  const decks = await listAvailableDecks(user.id);
+  const classicSpreads = (await listSpreadTemplates(user.id)).filter(
     (s) => s.isBuiltin
   );
 
   const appointment = params.appointmentId
-    ? getAppointmentById(user.id, params.appointmentId)
+    ? await getAppointmentById(user.id, params.appointmentId)
     : null;
 
   const resolvedDefaultDeckId =
