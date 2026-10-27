@@ -34,6 +34,17 @@ export function Step3Deck({
   onSelectDeck,
   onDeckCreated,
 }: Step3DeckProps) {
+  // Deduplicación estricta para garantizar que cada mazo canónico o personalizado aparezca exactamente una vez
+  const uniqueDecks = React.useMemo(() => {
+    const seen = new Set<string>();
+    return decks.filter((deck) => {
+      const key = `${deck.tradition || "other"}:${deck.name.toLowerCase().trim()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [decks]);
+
   const [isDialogOpen, setIsDialogOpen] = React.useState(false);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
@@ -101,7 +112,7 @@ export function Step3Deck({
         aria-label="Selección de mazo de tarot principal"
         className="grid gap-3 sm:grid-cols-2"
       >
-        {decks.map((deck) => {
+        {uniqueDecks.map((deck) => {
           const isSelected = !isExploringMode && selectedDeckId === deck.id;
 
           return (

@@ -84,6 +84,12 @@ export function Step5ReadingTutorial({
   onContinue,
 }: Step5ReadingTutorialProps) {
   const [substep, setSubstep] = React.useState<1 | 2>(1);
+  const [subDirection, setSubDirection] = React.useState<"forward" | "backward">("forward");
+
+  const handleSelectSubstep = (nextSubstep: 1 | 2) => {
+    setSubDirection(nextSubstep >= substep ? "forward" : "backward");
+    setSubstep(nextSubstep);
+  };
 
   // Subetapa 1: Destinatario
   const [localTargetType, setLocalTargetType] =
@@ -363,14 +369,21 @@ export function Step5ReadingTutorial({
         <div className="shrink-0 self-start sm:self-center">
           <PillStepper
             currentSubstep={substep}
-            onSelectSubstep={(s) => setSubstep(s)}
+            onSelectSubstep={(s) => handleSelectSubstep(s)}
           />
         </div>
       </div>
 
-      {/* SUBETAPA 1/2: PARA QUIÉN ES LA LECTURA */}
-      {substep === 1 && (
-        <div className="space-y-6 t-fade-rise">
+      <div
+        key={substep}
+        className={cn(
+          "w-full",
+          subDirection === "forward" ? "t-slide-forward" : "t-slide-backward"
+        )}
+      >
+        {/* SUBETAPA 1/2: PARA QUIÉN ES LA LECTURA */}
+        {substep === 1 && (
+          <div className="space-y-6">
           <div className="space-y-1">
             <h3 className="text-base font-semibold text-ink">
               1. Selecciona el destinatario de la lectura
@@ -563,7 +576,7 @@ export function Step5ReadingTutorial({
               type="button"
               variant="primary"
               disabled={!localTargetType}
-              onClick={() => setSubstep(2)}
+              onClick={() => handleSelectSubstep(2)}
               className="gap-2"
             >
               <span>Avanzar a mesa de cartas (2/2)</span>
@@ -575,7 +588,7 @@ export function Step5ReadingTutorial({
 
       {/* SUBETAPA 2/2: GESTIONAR CARTAS Y ESTRUCTURAS */}
       {substep === 2 && (
-        <div className="space-y-6 t-fade-rise">
+        <div className="space-y-6">
           {/* Fila de controles de la estructura */}
           <div className="flex flex-wrap items-center justify-between gap-3 bg-surface p-4 rounded-xl border border-border">
             <div className="space-y-1">
@@ -755,7 +768,7 @@ export function Step5ReadingTutorial({
               <Button
                 type="button"
                 variant="ghost"
-                onClick={() => setSubstep(1)}
+                onClick={() => handleSelectSubstep(1)}
                 className="gap-1.5 text-xs text-muted hover:text-ink"
               >
                 <ChevronLeft className="size-4" />
@@ -791,6 +804,7 @@ export function Step5ReadingTutorial({
           </div>
         </div>
       )}
+      </div>
 
       {/* DIÁLOGO SELECTOR DE CARTA DEL CATÁLOGO REAL */}
       <Dialog

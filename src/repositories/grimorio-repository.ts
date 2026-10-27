@@ -633,9 +633,51 @@ export function listAvailableDecks(
   const builtinDecks = getBuiltinDecks();
 
   const userDeckIds = new Set(userDecks.map((d) => d.id));
-  const activeBuiltins = builtinDecks.filter((b) => !userDeckIds.has(b.id));
+  const userDeckNames = new Set(
+    userDecks.map((d) => d.name.toLowerCase().trim())
+  );
+  const userBuiltinTraditions = new Set(
+    userDecks
+      .filter((d) =>
+        BUILTIN_DECKS.some(
+          (b) =>
+            b.tradition === d.tradition &&
+            b.name.toLowerCase().trim() === d.name.toLowerCase().trim()
+        )
+      )
+      .map((d) => d.tradition)
+  );
 
-  return [...activeBuiltins, ...userDecks];
+  const activeBuiltins = builtinDecks.filter((b) => {
+    if (userDeckIds.has(b.id)) return false;
+    if (userDeckNames.has(b.name.toLowerCase().trim())) return false;
+    if (userBuiltinTraditions.has(b.tradition)) return false;
+    if (
+      userDecks.some(
+        (d) =>
+          d.id === `${b.id}-${userId}` ||
+          d.id === `deck-${b.tradition}-${userId}`
+      )
+    ) {
+      return false;
+    }
+    return true;
+  });
+
+  const combined = [...userDecks, ...activeBuiltins];
+  const seenKeys = new Set<string>();
+  const uniqueDecks: Deck[] = [];
+
+  for (const deck of combined) {
+    const key = `${deck.tradition || "other"}:${deck.name.toLowerCase().trim()}`;
+    if (!seenKeys.has(key) && !seenKeys.has(deck.id)) {
+      seenKeys.add(key);
+      seenKeys.add(deck.id);
+      uniqueDecks.push(deck);
+    }
+  }
+
+  return uniqueDecks;
 }
 
 export function ensureUserBuiltinDecks(

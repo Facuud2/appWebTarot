@@ -82,7 +82,19 @@ export function OnboardingWizard({
 
   const [isSaving, setIsSaving] = React.useState<boolean>(false);
   const [isCompleting, setIsCompleting] = React.useState<boolean>(false);
+  const [stepDirection, setStepDirection] = React.useState<"forward" | "backward">("forward");
   const [agendaDemoStep, setAgendaDemoStep] = React.useState<number>(1);
+  const [agendaSubDirection, setAgendaSubDirection] = React.useState<"forward" | "backward">("forward");
+
+  const handleAgendaSubStepChange = (
+    nextSubStep: number,
+    dir?: "forward" | "backward"
+  ) => {
+    const direction =
+      dir ?? (nextSubStep >= agendaDemoStep ? "forward" : "backward");
+    setAgendaSubDirection(direction);
+    setAgendaDemoStep(nextSubStep);
+  };
 
   // Mazo seleccionado resuelto
   const selectedDeck = React.useMemo(() => {
@@ -108,16 +120,18 @@ export function OnboardingWizard({
     }
   };
 
-  // Avanzar al siguiente paso
+  // Avanzar al siguiente paso con deslizamiento iOS
   const handleNext = async () => {
     if (onboardingState.currentStep >= 6) return;
+    setStepDirection("forward");
     const nextStep = onboardingState.currentStep + 1;
     await persistProgress({ currentStep: nextStep });
   };
 
-  // Retroceder al paso anterior
+  // Retroceder al paso anterior con deslizamiento inverso
   const handlePrev = async () => {
     if (onboardingState.currentStep <= 1) return;
+    setStepDirection("backward");
     const prevStep = onboardingState.currentStep - 1;
     await persistProgress({ currentStep: prevStep });
   };
@@ -285,7 +299,7 @@ export function OnboardingWizard({
                   <button
                     key={st}
                     type="button"
-                    onClick={() => setAgendaDemoStep(st)}
+                    onClick={() => handleAgendaSubStepChange(st)}
                     title={`Etapa ${st}: ${AGENDA_DEMO_STAGES[st - 1]?.label}`}
                     className={cn(
                       "h-1.5 rounded-full transition-all duration-300 outline-none focus-visible:ring-1 focus-visible:ring-amber-500 cursor-pointer",
@@ -302,110 +316,122 @@ export function OnboardingWizard({
       </header>
 
       {/* ÁREA CENTRAL DE CONTENIDO DINÁMICO */}
-      <main className="flex-1 px-4 py-8 sm:px-8 flex items-center justify-center">
+      <main className="flex-1 px-4 py-8 sm:px-8 flex items-center justify-center overflow-x-hidden">
         <div className="w-full max-w-3xl">
-          {onboardingState.currentStep === 1 && (
-            <Step1Experience
-              value={onboardingState.experienceLevel}
-              onChange={(level) => persistProgress({ experienceLevel: level })}
-            />
-          )}
+          <div
+            key={onboardingState.currentStep}
+            className={cn(
+              "w-full",
+              stepDirection === "forward" ? "t-slide-forward" : "t-slide-backward"
+            )}
+          >
+            {onboardingState.currentStep === 1 && (
+              <Step1Experience
+                value={onboardingState.experienceLevel}
+                onChange={(level) => persistProgress({ experienceLevel: level })}
+              />
+            )}
 
-          {onboardingState.currentStep === 2 && (
-            <Step2Purposes
-              selectedPurposes={onboardingState.usagePurposes}
-              onChange={(purposes) =>
-                persistProgress({ usagePurposes: purposes })
-              }
-            />
-          )}
+            {onboardingState.currentStep === 2 && (
+              <Step2Purposes
+                selectedPurposes={onboardingState.usagePurposes}
+                onChange={(purposes) =>
+                  persistProgress({ usagePurposes: purposes })
+                }
+              />
+            )}
 
-          {onboardingState.currentStep === 3 && (
-            <Step3Deck
-              decks={decks}
-              selectedDeckId={onboardingState.selectedDeckId}
-              isExploringMode={isExploringDeck}
-              onSelectDeck={(deckId, isExploring) => {
-                setIsExploringDeck(isExploring);
-                persistProgress({
-                  selectedDeckId: deckId,
-                });
-              }}
-              onDeckCreated={(newDeck) => {
-                setDecks((prev) => [newDeck, ...prev]);
-                persistProgress({
-                  customDeckCreatedId: newDeck.id,
-                  selectedDeckId: newDeck.id,
-                });
-              }}
-            />
-          )}
+            {onboardingState.currentStep === 3 && (
+              <Step3Deck
+                decks={decks}
+                selectedDeckId={onboardingState.selectedDeckId}
+                isExploringMode={isExploringDeck}
+                onSelectDeck={(deckId, isExploring) => {
+                  setIsExploringDeck(isExploring);
+                  persistProgress({
+                    selectedDeckId: deckId,
+                  });
+                }}
+                onDeckCreated={(newDeck) => {
+                  setDecks((prev) => [newDeck, ...prev]);
+                  persistProgress({
+                    customDeckCreatedId: newDeck.id,
+                    selectedDeckId: newDeck.id,
+                  });
+                }}
+              />
+            )}
 
-          {onboardingState.currentStep === 4 && (
-            <Step4AgendaDemo
-              consultants={consultants}
-              createdAppointmentId={onboardingState.createdAppointmentId}
-              hasSkipped={onboardingState.skippedAppointmentDemo}
-              demoStep={agendaDemoStep}
-              onDemoStepChange={setAgendaDemoStep}
-              onAppointmentCreated={(apptId) =>
-                persistProgress({
-                  createdAppointmentId: apptId,
-                  skippedAppointmentDemo: false,
-                })
-              }
-              onSkip={async () => {
-                await persistProgress({
-                  skippedAppointmentDemo: true,
-                  currentStep: 5,
-                });
-              }}
-              onContinue={handleNext}
-            />
-          )}
+            {onboardingState.currentStep === 4 && (
+              <Step4AgendaDemo
+                consultants={consultants}
+                createdAppointmentId={onboardingState.createdAppointmentId}
+                hasSkipped={onboardingState.skippedAppointmentDemo}
+                demoStep={agendaDemoStep}
+                subDirection={agendaSubDirection}
+                onDemoStepChange={handleAgendaSubStepChange}
+                onAppointmentCreated={(apptId) =>
+                  persistProgress({
+                    createdAppointmentId: apptId,
+                    skippedAppointmentDemo: false,
+                  })
+                }
+                onSkip={async () => {
+                  setStepDirection("forward");
+                  await persistProgress({
+                    skippedAppointmentDemo: true,
+                    currentStep: 5,
+                  });
+                }}
+                onContinue={handleNext}
+                onPrevStep={handlePrev}
+              />
+            )}
 
-          {onboardingState.currentStep === 5 && (
-            <Step5ReadingTutorial
-              userFullName={user.name}
-              consultants={consultants}
-              canonicalCards={canonicalCards}
-              spreads={spreads}
-              selectedDeck={selectedDeck}
-              targetType={onboardingState.readingTargetType}
-              selectedConsultantId={onboardingState.targetConsultantId}
-              createdReadingId={onboardingState.createdReadingId}
-              hasSkippedReading={onboardingState.skippedReadingDemo}
-              onTargetSelected={(type, consultantId) =>
-                persistProgress({
-                  readingTargetType: type,
-                  targetConsultantId: consultantId,
-                })
-              }
-              onReadingCreated={(readingId) =>
-                persistProgress({
-                  createdReadingId: readingId,
-                  skippedReadingDemo: false,
-                })
-              }
-              onSkip={async () => {
-                await persistProgress({
-                  skippedReadingDemo: true,
-                  currentStep: 6,
-                });
-              }}
-              onContinue={handleNext}
-            />
-          )}
+            {onboardingState.currentStep === 5 && (
+              <Step5ReadingTutorial
+                userFullName={user.name}
+                consultants={consultants}
+                canonicalCards={canonicalCards}
+                spreads={spreads}
+                selectedDeck={selectedDeck}
+                targetType={onboardingState.readingTargetType}
+                selectedConsultantId={onboardingState.targetConsultantId}
+                createdReadingId={onboardingState.createdReadingId}
+                hasSkippedReading={onboardingState.skippedReadingDemo}
+                onTargetSelected={(type, consultantId) =>
+                  persistProgress({
+                    readingTargetType: type,
+                    targetConsultantId: consultantId,
+                  })
+                }
+                onReadingCreated={(readingId) =>
+                  persistProgress({
+                    createdReadingId: readingId,
+                    skippedReadingDemo: false,
+                  })
+                }
+                onSkip={async () => {
+                  setStepDirection("forward");
+                  await persistProgress({
+                    skippedReadingDemo: true,
+                    currentStep: 6,
+                  });
+                }}
+                onContinue={handleNext}
+              />
+            )}
 
-          {onboardingState.currentStep === 6 && (
-            <Step6Summary
-              workspaceName={user.workspaceName}
-              onboardingState={onboardingState}
-              selectedDeck={selectedDeck}
-              onComplete={handleComplete}
-              isCompleting={isCompleting}
-            />
-          )}
+            {onboardingState.currentStep === 6 && (
+              <Step6Summary
+                workspaceName={user.workspaceName}
+                onboardingState={onboardingState}
+                selectedDeck={selectedDeck}
+                onComplete={handleComplete}
+                isCompleting={isCompleting}
+              />
+            )}
+          </div>
         </div>
       </main>
 

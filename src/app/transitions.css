@@ -475,6 +475,45 @@
 }
 
 /* ============================================================================
+   8b. TRANSICIÓN DE VISTA ESTILO iOS / iPadOS (.t-slide-forward, .t-slide-backward)
+   ============================================================================ */
+.t-slide-forward {
+  animation: t-ios-slide-forward 260ms var(--ease-smooth-out) forwards;
+  will-change: opacity, transform, filter;
+}
+
+.t-slide-backward {
+  animation: t-ios-slide-backward 260ms var(--ease-smooth-out) forwards;
+  will-change: opacity, transform, filter;
+}
+
+@keyframes t-ios-slide-forward {
+  0% {
+    opacity: 0;
+    transform: translateX(36px);
+    filter: blur(var(--blur-small));
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes t-ios-slide-backward {
+  0% {
+    opacity: 0;
+    transform: translateX(-36px);
+    filter: blur(var(--blur-small));
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+    filter: blur(0);
+  }
+}
+
+/* ============================================================================
    9. ACCESIBILIDAD — PREFERS-REDUCED-MOTION
    ============================================================================ */
 @media (prefers-reduced-motion: reduce) {
@@ -487,7 +526,9 @@
   .is-shaking,
   .t-success-check,
   .t-skel::after,
-  .t-page-enter {
+  .t-page-enter,
+  .t-slide-forward,
+  .t-slide-backward {
     animation: none !important;
     transition: none !important;
     transform: none !important;
