@@ -5,8 +5,8 @@ import { NewReadingForm } from "@/features/readings/new-reading-form";
 import { getAppointmentById } from "@/repositories/appointments-repository";
 import { listConsultants } from "@/repositories/consultants-repository";
 import {
+  listAllCardsIncludingCustom,
   listAvailableDecks,
-  listCanonicalCards,
   listSpreadTemplates,
 } from "@/repositories/grimorio-repository";
 import { listUserTags } from "@/repositories/tags-repository";
@@ -31,7 +31,7 @@ export default async function NewReadingPage({
 
   const consultants = await listConsultants(user.id, { includeArchived: false });
   const decks = await listAvailableDecks(user.id);
-  const cardsCatalog = listCanonicalCards();
+  const cardsCatalog = await listAllCardsIncludingCustom(user.id);
   const tagSuggestions = (await listUserTags(user.id)).map((t) => t.name);
   const fetchedSpreads = (await listSpreadTemplates(user.id)).filter(
     (s) => s.isBuiltin

@@ -6,6 +6,7 @@ import type {
 } from "@/schemas/domain";
 import type {
   ActionResult,
+  CanonicalCard,
   Deck,
   PersonalCardEntry,
   SpreadTemplate,
@@ -53,4 +54,11 @@ export async function deleteSpreadTemplateAction(
   spreadId: string
 ): Promise<ActionResult<null>> {
   return callRpc<null>("grimorio.deleteSpread", { spreadId });
+}
+
+export async function registerCustomCardAction(input: {
+  name: string;
+  deckId: string;
+}): Promise<ActionResult<CanonicalCard>> {
+  return callRpc<CanonicalCard>("grimorio.registerCustomCard", input);
 }

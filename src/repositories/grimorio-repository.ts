@@ -136,6 +136,59 @@ export function listCanonicalCards(
   return cards;
 }
 
+export async function listAllCardsIncludingCustom(
+  userId: string,
+  db: AppDatabase = getDb(userId)
+): Promise<CanonicalCard[]> {
+  try {
+    const rows = (await db
+      .prepare("SELECT * FROM cards_catalog ORDER BY rank_number ASC")
+      .all()) as unknown as CanonicalCardRow[];
+    if (rows && rows.length > 0) {
+      return rows.map(mapCanonicalCardRow);
+    }
+  } catch {
+    // fallback if table query fails
+  }
+  return CANONICAL_TAROT_CARDS;
+}
+
+export async function registerCustomDeckCard(
+  userId: string,
+  deckId: string,
+  name: string,
+  db: AppDatabase = getDb(userId)
+): Promise<CanonicalCard> {
+  const cleanName = name.trim();
+  if (!cleanName) {
+    throw new Error("El nombre de la carta no puede estar vacío.");
+  }
+  const id = `card-custom-${randomUUID()}`;
+  const slug = `custom-${cleanName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${id.slice(-6)}`;
+
+  const countRow = (await db
+    .prepare("SELECT COUNT(*) AS c FROM cards_catalog WHERE deck_tradition = ?")
+    .get(deckId)) as { c: number } | undefined;
+  const rank = (countRow?.c ?? 0) + 1;
+
+  await db.prepare(`
+    INSERT INTO cards_catalog (
+      id, slug, arcana, suit, rank_number, roman_numeral,
+      canonical_name, name_en, deck_tradition, search_keywords_json,
+      traditional_upright, traditional_reversed, traditional_keywords_json, archetype_note
+    ) VALUES (
+      ?, ?, 'custom', NULL, ?, NULL,
+      ?, ?, ?, '[]',
+      'Significado en desarrollo.', 'Significado invertido en desarrollo.', '[]', ''
+    )
+  `).run(id, slug, rank, cleanName, cleanName, deckId);
+
+  const cardRow = (await db
+    .prepare("SELECT * FROM cards_catalog WHERE id = ?")
+    .get(id)) as CanonicalCardRow;
+  return mapCanonicalCardRow(cardRow);
+}
+
 export interface ListGrimorioOptions {
   query?: string;
   arcana?: ArcanaType | "all";

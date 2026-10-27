@@ -19,6 +19,7 @@ import {
   createSpreadTemplate,
   deleteDeck,
   deleteSpreadTemplate,
+  registerCustomDeckCard,
   updateDeck,
   upsertPersonalCardEntry,
 } from "@/repositories/grimorio-repository";
@@ -600,6 +601,39 @@ export async function POST(request: Request): Promise<NextResponse> {
           ok: true,
           data: null,
           message: "Mazo eliminado de tu colección.",
+        });
+      }
+
+      case "grimorio.registerCustomCard": {
+        const body = z
+          .object({
+            name: z
+              .string()
+              .trim()
+              .min(1, "Indica el nombre de la carta.")
+              .max(100),
+            deckId: z.string().trim().min(1, "Indica el mazo."),
+          })
+          .safeParse(payload);
+        if (!body.success) {
+          return jsonResult({
+            ok: false,
+            error:
+              body.error.issues[0]?.message ??
+              "Revisa el nombre de la carta.",
+          });
+        }
+        const createdCard = await registerCustomDeckCard(
+          user.id,
+          body.data.deckId,
+          body.data.name
+        );
+        safeRevalidatePath("/grimorio");
+        safeRevalidatePath("/lecturas/nueva");
+        return jsonResult({
+          ok: true,
+          data: createdCard,
+          message: `Carta «${createdCard.canonicalName}» registrada correctamente.`,
         });
       }
 

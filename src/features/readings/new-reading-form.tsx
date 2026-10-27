@@ -4,27 +4,33 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  ArrowDown,
   ArrowLeft,
+  ArrowLeftRight,
   ArrowRight,
   Check,
   ChevronDown,
   ChevronUp,
+  EyeOff,
   Layers,
   Minus,
   Plus,
   RotateCcw,
+  RotateCw,
+  Scissors,
   Sparkles,
   Trash2,
   X,
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import { registerCustomCardAction } from "@/actions/grimorio-actions";
 import {
   createReadingDraftAction,
   recordDeckEventAction,
   saveReadingSessionAction,
 } from "@/actions/reading-actions";
-import { SpreadMap, buildSpreadSlots } from "@/components/shared/spread-map";
+import { SpreadMap } from "@/components/shared/spread-map";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -137,20 +143,21 @@ interface CardSlotData {
   coordY: number;
 }
 
+// 100% Lucide Icons for Phenomenon Types (Zero emojis)
 const PHENOMENON_OPTIONS: Array<{
   type: PhenomenonType;
   label: string;
-  icon: string;
+  icon: React.ComponentType<{ className?: string }>;
   hint: string;
 }> = [
-  { type: "jumped", label: "Saltó al mezclar", icon: "⚡", hint: "Salió despedida" },
-  { type: "fell_to_floor", label: "Cayó fuera", icon: "⤵️", hint: "Al suelo o mesa" },
-  { type: "base_card", label: "Base del mazo", icon: "🎴", hint: "Carta inferior" },
-  { type: "cut_reveal", label: "En el corte", icon: "✂️", hint: "Al partir el mazo" },
-  { type: "spontaneous_turn", label: "Se dio vuelta", icon: "🔄", hint: "Invertida sola" },
-  { type: "partially_hidden", label: "Quedó tapada", icon: "📑", hint: "Oculta bajo otra" },
-  { type: "out_of_order", label: "Fuera de orden", icon: "↔️", hint: "Secuencia rota" },
-  { type: "other", label: "Otra situación", icon: "✨", hint: "Personalizada" },
+  { type: "jumped", label: "Saltó al mezclar", icon: Zap, hint: "Salió despedida" },
+  { type: "fell_to_floor", label: "Cayó fuera", icon: ArrowDown, hint: "Al suelo o mesa" },
+  { type: "base_card", label: "Base del mazo", icon: Layers, hint: "Carta inferior" },
+  { type: "cut_reveal", label: "En el corte", icon: Scissors, hint: "Al partir el mazo" },
+  { type: "spontaneous_turn", label: "Se dio vuelta", icon: RotateCw, hint: "Invertida sola" },
+  { type: "partially_hidden", label: "Quedó tapada", icon: EyeOff, hint: "Oculta bajo otra" },
+  { type: "out_of_order", label: "Fuera de orden", icon: ArrowLeftRight, hint: "Secuencia rota" },
+  { type: "other", label: "Otra situación", icon: Sparkles, hint: "Personalizada" },
 ];
 
 const PHASE_OPTIONS: Array<{ phase: DeckPhase; label: string }> = [
@@ -162,11 +169,19 @@ const PHASE_OPTIONS: Array<{ phase: DeckPhase; label: string }> = [
   { phase: "other", label: "Otra fase" },
 ];
 
+const BUILTIN_TRADITIONS = new Set<string>([
+  "rws",
+  "marseille",
+  "thoth",
+  "lenormand",
+  "living_wheel",
+]);
+
 export function NewReadingForm({
   consultants,
   decks,
   spreads,
-  cardsCatalog,
+  cardsCatalog: initialCardsCatalog,
   tagSuggestions = [],
   defaultDeckId,
   defaultSpreadId,
@@ -180,6 +195,10 @@ export function NewReadingForm({
 
   // Wizard Step: 1 = Configuración, 2 = Cartas y Notas, 3 = Acomodar Mesa
   const [currentStep, setCurrentStep] = React.useState<1 | 2 | 3>(1);
+
+  // Dynamic reactive card catalog (including newly registered custom cards)
+  const [cardsCatalog, setCardsCatalog] =
+    React.useState<CanonicalCard[]>(initialCardsCatalog);
 
   // Cancel Confirmation Modal State
   const [isCancelDialogOpen, setIsCancelDialogOpen] = React.useState(false);
@@ -243,6 +262,15 @@ export function NewReadingForm({
     null
   );
 
+  // Dialog to register a new card in a custom deck
+  const [registerCardModal, setRegisterCardModal] = React.useState<{
+    deckId: string;
+    deckName: string;
+    slotIndex: number;
+  } | null>(null);
+  const [newCardName, setNewCardName] = React.useState("");
+  const [isSavingCustomCard, setIsSavingCustomCard] = React.useState(false);
+
   // Deck Events state (recorded in step 2)
   const [localDeckEvents, setLocalDeckEvents] = React.useState<
     LocalDeckEvent[]
@@ -274,40 +302,99 @@ export function NewReadingForm({
     [spreads, spreadMode, spreadTemplateId]
   );
 
-  // Compute strictly filtered cards based on chosen decks' traditions
-  const availableFilteredCards = React.useMemo(() => {
-    // 1. Gather all selected decks (including quick decks)
-    const activeDecks = decks.filter((d) => selectedDeckIds.includes(d.id));
+  // Deck names mapping
+  const deckNamesMap = React.useMemo(() => {
+    const map: Record<string, string> = {
+      rws: "Rider-Waite-Smith",
+      marseille: "Tarot de Marsella",
+      thoth: "Tarot de Thoth",
+      lenormand: "Lenormand",
+      living_wheel: "The Living Wheel",
+    };
+    for (const d of decks) {
+      map[d.id] = d.name;
+      if (d.tradition) {
+        map[d.tradition] = d.name;
+      }
+    }
+    for (const q of quickNewDecks) {
+      map[q] = q;
+    }
+    return map;
+  }, [decks, quickNewDecks]);
 
-    // 2. Identify the traditions of the selected decks
-    const selectedTraditions = new Set<DeckTradition>(
+  // Active custom decks among chosen decks
+  const activeCustomDecks = React.useMemo(() => {
+    const activeDecks = decks.filter((d) => selectedDeckIds.includes(d.id));
+    const list: Array<{ id: string; name: string }> = [];
+
+    for (const d of activeDecks) {
+      if (!BUILTIN_TRADITIONS.has(d.tradition) || d.tradition === "other") {
+        list.push({ id: d.id, name: d.name });
+      }
+    }
+    for (const q of quickNewDecks) {
+      list.push({ id: q, name: q });
+    }
+    return list;
+  }, [decks, selectedDeckIds, quickNewDecks]);
+
+  // Compute strictly filtered cards based on chosen decks
+  const availableFilteredCards = React.useMemo(() => {
+    const activeDecks = decks.filter((d) => selectedDeckIds.includes(d.id));
+    const selectedTraditions = new Set<string>(
       activeDecks.map((d) => d.tradition)
     );
-
-    // If user registered a quick new deck, allow 'rws' tradition if none specified
-    if (quickNewDecks.length > 0 && selectedTraditions.size === 0) {
-      selectedTraditions.add("rws");
-    }
-
-    if (selectedTraditions.size === 0) {
-      // Default fallback
-      return cardsCatalog.filter((c) => c.deckTradition === "rws");
-    }
-
-    const matching = cardsCatalog.filter((c) =>
-      selectedTraditions.has(c.deckTradition as DeckTradition)
+    const selectedCustomIds = new Set<string>(
+      activeCustomDecks.map((d) => d.id)
     );
 
-    return matching.length > 0 ? matching : cardsCatalog;
-  }, [cardsCatalog, decks, selectedDeckIds, quickNewDecks]);
+    const hasBuiltin = Array.from(selectedTraditions).some((t) =>
+      BUILTIN_TRADITIONS.has(t)
+    );
+    const hasCustom = activeCustomDecks.length > 0;
+
+    // Filter cards
+    const matching = cardsCatalog.filter((c) => {
+      // Check if it belongs to selected builtin traditions
+      if (selectedTraditions.has(c.deckTradition)) {
+        return true;
+      }
+      // Check if it belongs to any selected custom deck
+      if (selectedCustomIds.has(c.deckTradition)) {
+        return true;
+      }
+      return false;
+    });
+
+    // If only custom decks were selected and they have no cards yet, return empty list
+    // (DO NOT fallback to RWS! Custom decks should show only their own cards + "Registrar nueva carta")
+    if (hasCustom && !hasBuiltin) {
+      return matching;
+    }
+
+    if (matching.length > 0) {
+      return matching;
+    }
+
+    // If user selected a builtin deck, filter for that builtin tradition
+    if (hasBuiltin) {
+      return cardsCatalog.filter((c) => selectedTraditions.has(c.deckTradition));
+    }
+
+    return [];
+  }, [cardsCatalog, decks, selectedDeckIds, activeCustomDecks]);
 
   // Deck traditions labels summary
   const selectedDeckTraditionsLabel = React.useMemo(() => {
     const activeDecks = decks.filter((d) => selectedDeckIds.includes(d.id));
-    const trads = Array.from(new Set(activeDecks.map((d) => d.tradition)));
-    if (trads.length === 0) return "Rider-Waite-Smith";
-    return trads.map((t) => DECK_TRADITION_LABELS[t] || t).join(", ");
-  }, [decks, selectedDeckIds]);
+    const labels = activeDecks.map((d) => d.name);
+    for (const q of quickNewDecks) {
+      labels.push(q);
+    }
+    if (labels.length === 0) return "Rider-Waite-Smith";
+    return labels.join(", ");
+  }, [decks, selectedDeckIds, quickNewDecks]);
 
   // Deck toggle in Step 1
   const toggleDeckSelection = (deckId: string, checked: boolean) => {
@@ -401,25 +488,10 @@ export function NewReadingForm({
     setCustomPositions(DEFAULT_CUSTOM_POSITIONS);
   };
 
-  // Navigation handlers
-  const handleNextStep1 = () => {
-    if (selectedDeckIds.length === 0 && quickNewDecks.length === 0) {
-      toast.error("Por favor selecciona o añade al menos un mazo.");
-      return;
-    }
-
-    if (
-      isRegisteringNewConsultant &&
-      quickConsultantName.trim().length === 0
-    ) {
-      toast.error("Por favor ingresa el nombre o alias del nuevo consultante.");
-      return;
-    }
-
-    // Resolve positions from chosen spread
+  // Prepare and synchronize cardSlots from Step 1 structure
+  const prepareCardSlots = () => {
     let basePositions: SpreadPositionDefinition[] = [];
     if (spreadMode === "custom") {
-      // If left blank, automatically name "Carta 1", "Carta 2", etc.
       basePositions = customPositions.map((p, idx) => ({
         ...p,
         positionIndex: idx + 1,
@@ -433,7 +505,6 @@ export function NewReadingForm({
       basePositions = DEFAULT_CUSTOM_POSITIONS;
     }
 
-    // Sync or build cardSlots preserving previously entered cards if user goes back & forth
     setCardSlots((prevSlots) => {
       return basePositions.map((pos) => {
         const existing = prevSlots.find(
@@ -454,25 +525,45 @@ export function NewReadingForm({
         };
       });
     });
+  };
 
-    setCurrentStep(2);
+  // Interactive Stepper Navigation (1, 2, 3 buttons)
+  const handleNavigateStep = (targetStep: 1 | 2 | 3) => {
+    if (targetStep === currentStep) return;
+
+    if (currentStep === 1) {
+      if (selectedDeckIds.length === 0 && quickNewDecks.length === 0) {
+        toast.error("Por favor selecciona o añade al menos un mazo.");
+        return;
+      }
+      if (
+        isRegisteringNewConsultant &&
+        quickConsultantName.trim().length === 0
+      ) {
+        toast.error("Por favor ingresa el nombre o alias del nuevo consultante.");
+        return;
+      }
+      prepareCardSlots();
+    }
+
+    setCurrentStep(targetStep);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleNextStep1 = () => {
+    handleNavigateStep(2);
   };
 
   const handleNextStep2 = () => {
-    // Advance to Step 3: spatial accommodation & completion
-    setCurrentStep(3);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    handleNavigateStep(3);
   };
 
   const handleBackToStep1 = () => {
-    setCurrentStep(1);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    handleNavigateStep(1);
   };
 
   const handleBackToStep2 = () => {
-    setCurrentStep(2);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    handleNavigateStep(2);
   };
 
   // Card slot updater for Step 2
@@ -487,9 +578,59 @@ export function NewReadingForm({
     );
   };
 
+  // Registering a new card in a custom deck reactively
+  const handleOpenRegisterCard = (deckId: string, slotIndex: number) => {
+    const deckName = deckNamesMap[deckId] || "Mazo";
+    setRegisterCardModal({ deckId, deckName, slotIndex });
+    setNewCardName("");
+  };
+
+  const handleSaveCustomCard = async () => {
+    if (!registerCardModal) return;
+    const cleanName = newCardName.trim();
+    if (!cleanName) {
+      toast.error("Indica el nombre de la nueva carta.");
+      return;
+    }
+
+    setIsSavingCustomCard(true);
+    try {
+      const res = await registerCustomCardAction({
+        name: cleanName,
+        deckId: registerCardModal.deckId,
+      });
+
+      if (!res.ok) {
+        toast.error(res.error || "No se pudo registrar la carta.");
+        return;
+      }
+
+      if (!res.data) {
+        toast.error("No se pudo registrar la carta.");
+        return;
+      }
+
+      const createdCard = res.data;
+      // 1. Reactively add to cards catalog
+      setCardsCatalog((prev) => [...prev, createdCard]);
+
+      // 2. Automatically select for this slot
+      updateCardSlot(registerCardModal.slotIndex, { cardId: createdCard.id });
+
+      toast.success(
+        `Carta «${createdCard.canonicalName}» registrada y seleccionada.`
+      );
+      setRegisterCardModal(null);
+    } catch (err) {
+      console.error(err);
+      toast.error("Error al registrar la carta.");
+    } finally {
+      setIsSavingCustomCard(false);
+    }
+  };
+
   // Deck event management for Step 2
   const openDeckEventModal = (positionIndex: number) => {
-    const slot = cardSlots.find((s) => s.positionIndex === positionIndex);
     setEventModalSlotIndex(positionIndex);
     setModalPhenomenon("jumped");
     setModalPhase("shuffling");
@@ -602,7 +743,11 @@ export function NewReadingForm({
         const mergedQuickDecks = [...quickNewDecks];
         const inlineDraftName = pendingDeckName.trim();
         if (registerNewDeckChecked && inlineDraftName.length > 0) {
-          if (!mergedQuickDecks.some((d) => d.toLowerCase() === inlineDraftName.toLowerCase())) {
+          if (
+            !mergedQuickDecks.some(
+              (d) => d.toLowerCase() === inlineDraftName.toLowerCase()
+            )
+          ) {
             mergedQuickDecks.push(inlineDraftName);
           }
         }
@@ -676,7 +821,8 @@ export function NewReadingForm({
           .filter((slot) => slot.cardId && slot.cardId.trim().length > 0)
           .map((slot) => ({
             positionIndex: slot.positionIndex,
-            positionTitle: slot.positionTitle.trim() || `Carta ${slot.positionIndex}`,
+            positionTitle:
+              slot.positionTitle.trim() || `Carta ${slot.positionIndex}`,
             positionPrompt: slot.positionPrompt.trim(),
             cardId: slot.cardId,
             orientation: slot.orientation,
@@ -715,7 +861,9 @@ export function NewReadingForm({
         });
 
         if (!saveRes.ok) {
-          toast.error(saveRes.error || "Se creó el borrador pero falló el guardado final.");
+          toast.error(
+            saveRes.error || "Se creó el borrador pero falló el guardado final."
+          );
           router.push(`/lecturas/${readingId}`);
           return;
         }
@@ -739,7 +887,7 @@ export function NewReadingForm({
 
   return (
     <div className="space-y-6">
-      {/* Top Header & 3-Step Pill Stepper */}
+      {/* Top Header & 3-Step Pill Stepper (Clickable Buttons) */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-4">
         <div className="space-y-1">
           <Link
@@ -764,7 +912,7 @@ export function NewReadingForm({
           </p>
         </div>
 
-        {/* 3-Step Stepper Bar */}
+        {/* 3-Step Stepper Bar with CLICKABLE Pill Buttons */}
         <div className="flex items-center gap-2 self-start sm:self-auto">
           <div
             role="group"
@@ -779,15 +927,18 @@ export function NewReadingForm({
               const isActive = currentStep === step.id;
               const isCompleted = currentStep > step.id;
               return (
-                <div
+                <button
                   key={step.id}
+                  type="button"
+                  onClick={() => handleNavigateStep(step.id as 1 | 2 | 3)}
+                  title={step.title}
                   className={cn(
-                    "flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                    "flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                     isActive
                       ? "bg-accent text-on-primary font-semibold shadow-xs"
                       : isCompleted
-                        ? "text-ink bg-surface-raised font-medium"
-                        : "text-muted"
+                        ? "text-ink bg-surface-raised hover:bg-surface-raised/80 font-medium"
+                        : "text-muted hover:text-ink hover:bg-surface-raised/50"
                   )}
                 >
                   <span
@@ -796,14 +947,14 @@ export function NewReadingForm({
                       isActive
                         ? "bg-ground text-ink"
                         : isCompleted
-                          ? "bg-accent/20 text-accent"
+                          ? "bg-accent/20 text-accent font-semibold"
                           : "bg-surface-raised border border-border text-muted"
                     )}
                   >
                     {isCompleted ? <Check className="size-3" /> : step.id}
                   </span>
                   <span className="hidden sm:inline">{step.label}</span>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -855,7 +1006,7 @@ export function NewReadingForm({
                         setIsRegisteringNewConsultant(true);
                         setConsultantId("__new__");
                       }}
-                      className="text-xs text-accent hover:underline inline-flex items-center gap-1"
+                      className="text-xs text-accent hover:underline inline-flex items-center gap-1 cursor-pointer"
                     >
                       <Plus className="size-3" aria-hidden="true" />
                       <span>Nuevo consultante</span>
@@ -904,7 +1055,7 @@ export function NewReadingForm({
                           setQuickConsultantName("");
                           setConsultantId("");
                         }}
-                        className="text-xs text-muted hover:text-ink inline-flex items-center gap-1"
+                        className="text-xs text-muted hover:text-ink inline-flex items-center gap-1 cursor-pointer"
                       >
                         <X className="size-3" aria-hidden="true" />
                         <span>Cancelar</span>
@@ -965,7 +1116,7 @@ export function NewReadingForm({
                             {d.name}
                           </p>
                           <p className="text-xs text-muted truncate">
-                            {DECK_TRADITION_LABELS[d.tradition]}
+                            {DECK_TRADITION_LABELS[d.tradition] || d.tradition}
                           </p>
                         </div>
                       </div>
@@ -1034,7 +1185,7 @@ export function NewReadingForm({
                             type="button"
                             onClick={() => removeQuickDeckName(deckName)}
                             aria-label={`Quitar mazo ${deckName}`}
-                            className="text-muted hover:text-negative"
+                            className="text-muted hover:text-negative cursor-pointer"
                           >
                             <X className="size-3.5" aria-hidden="true" />
                           </button>
@@ -1167,7 +1318,7 @@ export function NewReadingForm({
                                 type="button"
                                 onClick={() => removeCustomPosition(pos.positionIndex)}
                                 aria-label={`Quitar posición ${pos.positionIndex}`}
-                                className="text-muted hover:text-negative shrink-0 p-1"
+                                className="text-muted hover:text-negative shrink-0 p-1 cursor-pointer"
                               >
                                 <Trash2 className="size-3.5" aria-hidden="true" />
                               </button>
@@ -1308,7 +1459,7 @@ export function NewReadingForm({
                 Filtro de cartas activo por mazo
               </p>
               <p className="text-xs text-ink">
-                Mostrando únicamente las <strong>{availableFilteredCards.length} cartas</strong> correspondientes a la tradición:{" "}
+                Mostrando únicamente las <strong>{availableFilteredCards.length} cartas</strong> correspondientes a:{" "}
                 <span className="font-medium text-accent">{selectedDeckTraditionsLabel}</span>.
               </p>
             </div>
@@ -1327,6 +1478,16 @@ export function NewReadingForm({
               const selectedCard = slot.cardId
                 ? cardByIdMap.get(slot.cardId)
                 : null;
+
+              // EXCLUDE cards already selected in OTHER slots (a card cannot come out more than once!)
+              const otherSelectedCardIds = new Set(
+                cardSlots
+                  .filter((s) => s.positionIndex !== slot.positionIndex && s.cardId)
+                  .map((s) => s.cardId)
+              );
+              const cardsForThisSlot = availableFilteredCards.filter(
+                (c) => !otherSelectedCardIds.has(c.id)
+              );
 
               return (
                 <div
@@ -1376,13 +1537,18 @@ export function NewReadingForm({
                       </Label>
                       <CardCombobox
                         id={`card-select-${slot.positionIndex}`}
-                        cards={availableFilteredCards}
+                        cards={cardsForThisSlot}
                         value={slot.cardId}
                         onChange={(cardId) =>
                           updateCardSlot(slot.positionIndex, { cardId })
                         }
                         placeholder={`Seleccionar carta para «${slot.positionTitle}»…`}
                         allowClear
+                        deckNamesMap={deckNamesMap}
+                        customDecks={activeCustomDecks}
+                        onRegisterCustomCard={(deckId) =>
+                          handleOpenRegisterCard(deckId, slot.positionIndex)
+                        }
                       />
                     </div>
 
@@ -1399,7 +1565,7 @@ export function NewReadingForm({
                             })
                           }
                           className={cn(
-                            "flex-1 rounded-md py-1.5 text-xs font-medium transition-colors",
+                            "flex-1 rounded-md py-1.5 text-xs font-medium transition-colors cursor-pointer",
                             slot.orientation === "upright"
                               ? "bg-surface text-ink shadow-xs"
                               : "text-muted hover:text-ink"
@@ -1415,7 +1581,7 @@ export function NewReadingForm({
                             })
                           }
                           className={cn(
-                            "flex-1 rounded-md py-1.5 text-xs font-medium transition-colors",
+                            "flex-1 rounded-md py-1.5 text-xs font-medium transition-colors cursor-pointer",
                             slot.orientation === "reversed"
                               ? "bg-warning/20 text-warning font-semibold shadow-xs"
                               : "text-muted hover:text-ink"
@@ -1450,32 +1616,42 @@ export function NewReadingForm({
 
                     {slotEvents.length > 0 ? (
                       <div className="space-y-1.5">
-                        {slotEvents.map((ev) => (
-                          <div
-                            key={ev.localId}
-                            className="flex items-center justify-between gap-2 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="font-semibold text-accent shrink-0">
-                                {PHENOMENON_LABELS[ev.phenomenonType]}:
-                              </span>
-                              <span className="truncate text-ink">
-                                {ev.observationDescription}
-                              </span>
-                              <span className="text-muted text-[11px] shrink-0">
-                                ({DECK_PHASE_LABELS[ev.occurredPhase]})
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => removeDeckEvent(ev.localId)}
-                              aria-label="Quitar evento"
-                              className="text-muted hover:text-negative shrink-0 p-1"
+                        {slotEvents.map((ev) => {
+                          const option = PHENOMENON_OPTIONS.find(
+                            (o) => o.type === ev.phenomenonType
+                          );
+                          const IconComp = option?.icon || Sparkles;
+                          return (
+                            <div
+                              key={ev.localId}
+                              className="flex items-center justify-between gap-2 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs"
                             >
-                              <X className="size-3.5" aria-hidden="true" />
-                            </button>
-                          </div>
-                        ))}
+                              <div className="flex items-center gap-2 min-w-0">
+                                <IconComp
+                                  className="size-3.5 text-accent shrink-0"
+                                  aria-hidden="true"
+                                />
+                                <span className="font-semibold text-accent shrink-0">
+                                  {PHENOMENON_LABELS[ev.phenomenonType]}:
+                                </span>
+                                <span className="truncate text-ink">
+                                  {ev.observationDescription}
+                                </span>
+                                <span className="text-muted text-[11px] shrink-0">
+                                  ({DECK_PHASE_LABELS[ev.occurredPhase]})
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeDeckEvent(ev.localId)}
+                                aria-label="Quitar evento"
+                                className="text-muted hover:text-negative shrink-0 p-1 cursor-pointer"
+                              >
+                                <X className="size-3.5" aria-hidden="true" />
+                              </button>
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : (
                       <p className="text-[11px] text-muted italic">
@@ -1493,7 +1669,7 @@ export function NewReadingForm({
                           isNotesExpanded ? null : slot.positionIndex
                         )
                       }
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-accent hover:underline py-1"
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-accent hover:underline py-1 cursor-pointer"
                     >
                       {isNotesExpanded ? (
                         <>
@@ -1760,7 +1936,64 @@ export function NewReadingForm({
       )}
 
       {/* ========================================================================= */}
-      {/* DIALOG: Registrar Evento Físico del Mazo (Paso 2)                         */}
+      {/* DIALOG: Registrar Nueva Carta en Mazo Personalizado (Reactivo)            */}
+      {/* ========================================================================= */}
+      <Dialog
+        open={registerCardModal !== null}
+        onOpenChange={(open) => {
+          if (!open) setRegisterCardModal(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Registrar nueva carta</DialogTitle>
+            <DialogDescription>
+              Añade una nueva carta a tu mazo «{registerCardModal?.deckName}». Se guardará inmediatamente y se asignará a esta posición.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="custom-card-name-input">Nombre de la carta</Label>
+              <Input
+                id="custom-card-name-input"
+                value={newCardName}
+                onChange={(e) => setNewCardName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSaveCustomCard();
+                  }
+                }}
+                placeholder="Ej. El Faraón, La Llave Maestra, El Guardián…"
+                autoFocus
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setRegisterCardModal(null)}
+              disabled={isSavingCustomCard}
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              onClick={handleSaveCustomCard}
+              disabled={isSavingCustomCard}
+            >
+              {isSavingCustomCard ? "Guardando carta…" : "Guardar y asignar carta"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ========================================================================= */}
+      {/* DIALOG: Registrar Evento Físico del Mazo (Paso 2, 100% Lucide Icons)      */}
       {/* ========================================================================= */}
       <Dialog
         open={eventModalSlotIndex !== null}
@@ -1782,25 +2015,35 @@ export function NewReadingForm({
             <div className="space-y-1.5">
               <Label>Tipo de fenómeno</Label>
               <div className="grid grid-cols-2 gap-2">
-                {PHENOMENON_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.type}
-                    type="button"
-                    onClick={() => setModalPhenomenon(opt.type)}
-                    className={cn(
-                      "flex items-start gap-2 rounded-lg border p-2 text-left transition-colors text-xs",
-                      modalPhenomenon === opt.type
-                        ? "border-accent bg-accent/10 text-ink ring-1 ring-accent"
-                        : "border-border bg-surface hover:bg-surface-raised text-muted hover:text-ink"
-                    )}
-                  >
-                    <span className="text-sm shrink-0">{opt.icon}</span>
-                    <div className="min-w-0">
-                      <p className="font-semibold">{opt.label}</p>
-                      <p className="text-[10px] text-muted truncate">{opt.hint}</p>
-                    </div>
-                  </button>
-                ))}
+                {PHENOMENON_OPTIONS.map((opt) => {
+                  const IconComp = opt.icon;
+                  const isSelected = modalPhenomenon === opt.type;
+                  return (
+                    <button
+                      key={opt.type}
+                      type="button"
+                      onClick={() => setModalPhenomenon(opt.type)}
+                      className={cn(
+                        "flex items-start gap-2 rounded-lg border p-2 text-left transition-colors text-xs cursor-pointer",
+                        isSelected
+                          ? "border-accent bg-accent/10 text-ink ring-1 ring-accent"
+                          : "border-border bg-surface hover:bg-surface-raised text-muted hover:text-ink"
+                      )}
+                    >
+                      <IconComp
+                        className={cn(
+                          "size-4 shrink-0 mt-0.5",
+                          isSelected ? "text-accent" : "text-muted"
+                        )}
+                        aria-hidden="true"
+                      />
+                      <div className="min-w-0">
+                        <p className="font-semibold">{opt.label}</p>
+                        <p className="text-[10px] text-muted truncate">{opt.hint}</p>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

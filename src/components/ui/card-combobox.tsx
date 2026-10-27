@@ -2,11 +2,11 @@
 
 import * as React from "react";
 import { Command } from "cmdk";
-import { Check, ChevronsUpDown, Search, X } from "lucide-react";
+import { Check, ChevronsUpDown, Plus, Search, X } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { SUIT_LABELS } from "@/lib/constants";
+import { DECK_TRADITION_LABELS, SUIT_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import type { CanonicalCard } from "@/types/domain";
+import type { CanonicalCard, DeckTradition } from "@/types/domain";
 
 interface CardComboboxProps {
   cards: CanonicalCard[];
@@ -16,6 +16,9 @@ interface CardComboboxProps {
   allowClear?: boolean;
   id?: string;
   ariaLabel?: string;
+  deckNamesMap?: Record<string, string>;
+  customDecks?: Array<{ id: string; name: string }>;
+  onRegisterCustomCard?: (deckId: string) => void;
 }
 
 export function CardCombobox({
@@ -26,6 +29,9 @@ export function CardCombobox({
   allowClear = false,
   id,
   ariaLabel,
+  deckNamesMap,
+  customDecks,
+  onRegisterCustomCard,
 }: CardComboboxProps) {
   const [open, setOpen] = React.useState(false);
   const listboxId = React.useId();
@@ -33,6 +39,20 @@ export function CardCombobox({
   const selectedCard = React.useMemo(
     () => cards.find((c) => c.id === value) ?? null,
     [cards, value]
+  );
+
+  const getDeckLabel = React.useCallback(
+    (card: CanonicalCard): string => {
+      if (deckNamesMap && deckNamesMap[card.deckTradition]) {
+        return deckNamesMap[card.deckTradition];
+      }
+      const trad = card.deckTradition as DeckTradition;
+      if (DECK_TRADITION_LABELS[trad]) {
+        return DECK_TRADITION_LABELS[trad];
+      }
+      return card.deckTradition || "Tarot";
+    },
+    [deckNamesMap]
   );
 
   const majors = React.useMemo(
@@ -51,7 +71,7 @@ export function CardCombobox({
     () => cards.filter((c) => c.arcana === "astrological"),
     [cards]
   );
-  const others = React.useMemo(
+  const customOrOthers = React.useMemo(
     () =>
       cards.filter(
         (c) =>
@@ -64,14 +84,17 @@ export function CardCombobox({
   );
 
   const renderCardItem = (card: CanonicalCard) => {
+    const deckLabel = getDeckLabel(card);
     const searchHaystack = [
+      card.id,
       card.canonicalName,
-      card.nameEn,
+      card.nameEn ?? "",
+      deckLabel,
+      card.deckTradition ?? "",
       ...(card.searchKeywords ?? []),
       card.romanNumeral ?? "",
       String(card.rankNumber),
       card.suit ? (SUIT_LABELS[card.suit] ?? card.suit) : "",
-      card.deckTradition ?? "",
       ...(card.traditionalKeywords ?? []),
     ].join(" ");
 
@@ -83,7 +106,7 @@ export function CardCombobox({
           onChange(card.id);
           setOpen(false);
         }}
-        className="flex cursor-pointer items-center justify-between rounded-md px-2.5 py-2 text-sm text-ink data-[selected=true]:bg-active"
+        className="flex cursor-pointer items-center justify-between rounded-md px-2.5 py-2 text-sm text-ink data-[selected=true]:bg-active transition-colors"
       >
         <div className="flex flex-col min-w-0 pr-2">
           <div className="flex items-center gap-2 truncate">
@@ -94,13 +117,16 @@ export function CardCombobox({
             ) : null}
             <span className="truncate font-medium text-ink">
               {card.canonicalName}
+              {card.nameEn &&
+              card.nameEn.toLowerCase() !== card.canonicalName.toLowerCase() ? (
+                <span className="text-muted font-normal italic">
+                  {" "}
+                  ({card.nameEn})
+                </span>
+              ) : null}
+              <span className="text-muted font-normal"> — {deckLabel}</span>
             </span>
           </div>
-          {card.nameEn ? (
-            <div className="text-[11px] text-muted truncate pl-0 sm:pl-8 italic">
-              {card.nameEn}
-            </div>
-          ) : null}
         </div>
         {value === card.id ? (
           <Check
@@ -130,18 +156,18 @@ export function CardCombobox({
           >
             <span className="truncate">
               {selectedCard ? (
-                <span className="inline-flex items-center gap-2 text-ink">
+                <span className="inline-flex items-center gap-1.5 text-ink truncate">
                   {selectedCard.romanNumeral ? (
-                    <span className="text-xs font-medium text-muted num-tabular">
+                    <span className="text-xs font-medium text-muted num-tabular shrink-0">
                       {selectedCard.romanNumeral}
                     </span>
                   ) : null}
-                  <span className="font-medium">{selectedCard.canonicalName}</span>
-                  {selectedCard.nameEn ? (
-                    <span className="text-xs text-muted font-normal hidden sm:inline">
-                      ({selectedCard.nameEn})
-                    </span>
-                  ) : null}
+                  <span className="font-medium truncate">
+                    {selectedCard.canonicalName}
+                  </span>
+                  <span className="text-xs text-muted font-normal truncate">
+                    — {getDeckLabel(selectedCard)}
+                  </span>
                 </span>
               ) : (
                 placeholder
@@ -153,19 +179,69 @@ export function CardCombobox({
             />
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-[min(380px,calc(100vw-2rem))] p-0" align="start">
-          <Command label="Buscar carta del tarot" className="flex flex-col">
+        <PopoverContent
+          className="w-[min(420px,calc(100vw-2rem))] p-0"
+          align="start"
+          onWheel={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+        >
+          <Command
+            label="Buscar carta del tarot"
+            className="flex flex-col"
+            disablePointerSelection
+          >
             <div className="flex items-center gap-2 border-b border-border px-3 py-2">
               <Search className="size-4 text-muted shrink-0" aria-hidden="true" />
               <Command.Input
-                placeholder="Escribe en español o inglés (The Fool, Rey de Copas...)"
+                placeholder="Escribe en español o inglés (The Fool, Thoth, Oros...)"
                 className="w-full bg-transparent text-sm text-ink placeholder:text-faint outline-none"
               />
             </div>
-            <Command.List id={listboxId} className="max-h-72 overflow-y-auto p-1.5">
+
+            {/* Custom Deck Register Option: FIRST OPTION OF THE SCROLL */}
+            {customDecks && customDecks.length > 0 && onRegisterCustomCard ? (
+              <div className="p-1.5 border-b border-border bg-accent/5 space-y-1">
+                {customDecks.map((cd) => (
+                  <button
+                    key={cd.id}
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      onRegisterCustomCard(cd.id);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-semibold text-accent hover:bg-accent/15 transition-colors cursor-pointer text-left"
+                  >
+                    <Plus className="size-3.5 shrink-0" aria-hidden="true" />
+                    <span>+ Registrar nueva carta en {cd.name}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            <Command.List
+              id={listboxId}
+              className="max-h-80 overflow-y-auto p-1.5 overscroll-contain touch-pan-y"
+              style={{
+                maxHeight: "340px",
+                overflowY: "auto",
+                WebkitOverflowScrolling: "touch",
+                touchAction: "pan-y",
+              }}
+              onWheel={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
+            >
               <Command.Empty className="px-3 py-4 text-center text-xs text-muted">
                 Ninguna carta coincide con la búsqueda.
               </Command.Empty>
+
+              {customOrOthers.length > 0 ? (
+                <Command.Group
+                  heading="Cartas del Mazo Personalizado"
+                  className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-muted"
+                >
+                  {customOrOthers.map(renderCardItem)}
+                </Command.Group>
+              ) : null}
 
               {majors.length > 0 ? (
                 <Command.Group
@@ -202,15 +278,6 @@ export function CardCombobox({
                   {astrological.map(renderCardItem)}
                 </Command.Group>
               ) : null}
-
-              {others.length > 0 ? (
-                <Command.Group
-                  heading="Otras cartas"
-                  className="mt-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:text-muted"
-                >
-                  {others.map(renderCardItem)}
-                </Command.Group>
-              ) : null}
             </Command.List>
           </Command>
         </PopoverContent>
@@ -221,7 +288,7 @@ export function CardCombobox({
           type="button"
           onClick={() => onChange("")}
           aria-label="Quitar carta seleccionada"
-          className="flex size-10 sm:size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-raised text-muted hover:bg-surface hover:text-ink"
+          className="flex size-10 sm:size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-raised text-muted hover:bg-surface hover:text-ink cursor-pointer"
         >
           <X className="size-4" aria-hidden="true" />
         </button>
