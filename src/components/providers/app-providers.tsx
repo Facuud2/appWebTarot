@@ -3,6 +3,7 @@
 import * as React from "react";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
+import { UnsavedChangesProvider } from "@/components/providers/unsaved-changes-provider";
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
@@ -34,7 +35,7 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       enableSystem
       disableTransitionOnChange
     >
-      {children}
+      <UnsavedChangesProvider>{children}</UnsavedChangesProvider>
       <Toaster
         position="bottom-right"
         closeButton

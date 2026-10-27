@@ -141,7 +141,25 @@ flowchart LR
 
 ### Casos de Uso Alternativos y Excepcionales
 
-#### 1. Navegación Libre y Saltos Arbitrarios (Píldoras 1, 2, 3)
+#### 1. Protección contra Salida Accidental y Cambio de Sección (Guardado en Borrador)
+* **Escenario**: Mientras el tarotista está ingresando una lectura (en cualquier paso), pulsa por error uno de los botones de la barra de navegación inferior en vista móvil (ej. *Inicio*, *Agenda*, *Consultantes*, *Cartas*), el logo superior o un enlace del menú lateral.
+* **Comportamiento**:
+  - El sistema detecta inmediatamente que la lectura tiene contenido en curso (`isDirty`) e **intercepta la navegación** antes de desmontar el formulario.
+  - Se abre un diálogo modal sereno y accesible con 3 opciones claras:
+    1. **"Guardar en borrador y salir"**: Guarda la lectura de inmediato en la base de datos como borrador (conservando todas las cartas, posiciones, notas y eventos registrados) y continúa hacia la sección que el usuario seleccionó.
+    2. **"Salir sin guardar"**: Descarta la sesión actual y redirige a la sección solicitada.
+    3. **"Cancelar"**: Cierra el diálogo y mantiene al usuario exactamente donde estaba en la lectura.
+  - La protección también actúa ante el botón atrás del navegador (*popstate*) y el cierre o recarga de la pestaña (*beforeunload*).
+  - Además, el usuario cuenta en todo momento con un botón visible **"Guardar borrador"** tanto en la cabecera como en el pie de cada paso para resguardar su trabajo manualmente.
+
+#### 2. Persistencia Inmediata en Base de Datos de Mazos y Cartas Creadas
+* **Escenario**: El usuario registra un nuevo mazo en el Paso 1 o una nueva carta personalizada en el Paso 2, pero luego cancela la lectura o sale sin completarla.
+* **Comportamiento**:
+  - **Mazos**: Al escribir el nombre y pulsar *"Añadir mazo"*, el mazo se guarda de inmediato en la tabla `decks` de la base de datos SQLite y se selecciona en la lectura.
+  - **Cartas**: Al pulsar `+ Registrar nueva carta en [Mazo]` y confirmar el nombre, la carta se inserta directamente en la tabla `cards_catalog` de la base de datos.
+  - **Independencia del ciclo de vida de la lectura**: Ambos elementos quedan guardados permanentemente en la base de datos desde el instante de su creación. Aunque la lectura se cancele, se descarte o se cierre el navegador, el mazo y las cartas ya existen en la biblioteca y estarán disponibles para futuras consultas o en el Grimorio.
+
+#### 3. Navegación Libre y Saltos Arbitrarios (Píldoras 1, 2, 3)
 * **Escenario**: Estás en el **Paso 3** ajustando el tapete y recuerdas que olvidaste agregar un detalle clave en la pregunta inicial o en las notas de contexto.
 * **Comportamiento**:
   - No estás atrapado ni obligado a retroceder paso a paso.
@@ -149,43 +167,34 @@ flowchart LR
   - El formulario regresa al Paso 1 conservando todas las cartas, posiciones y notas intactas.
   - Realiza tu cambio y pulsa la píldora **`3`** o el botón "Siguiente" para volver directo al tapete.
 
-#### 2. Cancelación Protegida (Evitar pérdidas accidentales)
-* **Escenario**: El usuario hace clic accidentalmente en **"Cancelar lectura"** o decide abandonar la sesión.
+#### 4. Cancelación Protegida en Dos Pasos
+* **Escenario**: El usuario hace clic voluntariamente en **"Cancelar lectura"**.
 * **Comportamiento**:
   - En cualquiera de los 3 pasos, el botón "Cancelar lectura" activa un **diálogo modal de confirmación**:
     > *"¿Deseas cancelar la lectura? Perderás los datos ingresados en esta sesión si no la has completado."*
   - Si se presiona *"Continuar editando"*, el diálogo se cierra sin perder ningún dato.
   - Si se confirma *"Sí, cancelar"*, el formulario se descarta de forma limpia y redirige al listado general de lecturas.
 
-#### 3. Uso de Mazos Personalizados con Cartas Nuevas Sobre la Marcha
-* **Escenario**: El tarotista utiliza un oráculo propio o una baraja artística no tradicional (`deckTradition: other`), y al barajar sale una carta que aún no había sido registrada en el sistema.
-* **Comportamiento**:
-  - Al abrir el selector de cartas en el Paso 2, la primera opción visible es:
-    `+ Registrar nueva carta en [Nombre del Mazo]`.
-  - Al pulsarla, se abre un cuadro modal para escribir el nombre de la nueva carta.
-  - Al confirmar, la carta se guarda de inmediato en la base de datos local y se autoselecciona en la posición actual.
-  - Si el usuario eligió únicamente su mazo personalizado, el selector jamás revertirá erróneamente a Rider-Waite-Smith.
-
-#### 4. Tirada Personalizada sin Nombres (Auto-nominación)
+#### 5. Tirada Personalizada sin Nombres (Auto-nominación)
 * **Escenario**: Se escoge la opción *"Estructura personalizada"* y se eligen 5 cartas, pero por la premura de la sesión el tarotista no redacta nombres para las posiciones.
 * **Comportamiento**:
   - Al avanzar al Paso 2, el sistema detecta los campos vacíos y les asigna automáticamente los identificadores `Carta 1`, `Carta 2`, `Carta 3`, etc.
   - Las posiciones conservan orden y claridad tanto en el selector como en el tapete interactivo.
 
-#### 5. Inicio desde una Cita Agendada en el Calendario
+#### 6. Inicio desde una Cita Agendada en el Calendario
 * **Escenario**: Llegó la hora de una consulta previamente pactada en `/agenda`.
 * **Comportamiento**:
   - En la tarjeta de la cita, se presiona **"Iniciar lectura"**.
   - El sistema redirige a `/lecturas/nueva?appointmentId=...`, precargando automáticamente al consultante, la fecha y hora de la cita.
   - Al completarse la lectura, la cita cambia su estado a *Completada* y queda vinculada en el historial del consultante.
 
-#### 6. Registro de Fenómenos Físicos Independientes
+#### 7. Registro de Fenómenos Físicos Independientes
 * **Escenario**: Mientras el tarotista consagraba o limpiaba su baraja fuera de consulta, una carta saltó espontáneamente de la caja.
 * **Comportamiento**:
   - Se accede a `/fenomenos` y se presiona **"Nuevo Fenómeno"**.
   - Se registra el suceso físico seleccionando la carta, el mazo y el tipo de fenómeno (`Zap`, `ArrowDown`, etc.) sin necesidad de crear una lectura ficticia.
 
-#### 7. Operación Táctil en Tablets y Celulares junto a la Mesa
+#### 8. Operación Táctil en Tablets y Celulares junto a la Mesa
 * **Escenario**: El profesional opera un iPad o teléfono móvil apoyado en un atril junto al paño de cartas.
 * **Comportamiento**:
   - Al arrastrar cartas en el tapete virtual (`SpreadMap`), el scroll vertical de la página se bloquea temporalmente para evitar tirones de pantalla.
@@ -233,7 +242,7 @@ appWebTarot/
 │   │   └── transitions.css           # Tokens y animaciones transitions-dev
 │   ├── components/                   # Componentes visuales reutilizables
 │   │   ├── layout/                   # AppShell y GlobalCommandPalette (⌘K)
-│   │   ├── providers/                # Proveedor de tema y bloqueador de zoom táctil
+│   │   ├── providers/                # ThemeProvider, UnsavedChangesProvider y gestos táctiles
 │   │   ├── shared/                   # SpreadMap (tapete interactivo), TarotCardPlate
 │   │   └── ui/                       # Primitivas accesibles (CardCombobox, Dialog, etc.)
 │   ├── features/                     # Componentes interactivos organizados por dominio

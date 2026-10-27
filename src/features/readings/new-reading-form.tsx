@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   ArrowLeftRight,
   ArrowRight,
+  Bookmark,
   Check,
   ChevronDown,
   ChevronUp,
@@ -24,7 +25,11 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
-import { registerCustomCardAction } from "@/actions/grimorio-actions";
+import {
+  createQuickDeckAction,
+  registerCustomCardAction,
+} from "@/actions/grimorio-actions";
+import { useUnsavedChanges } from "@/components/providers/unsaved-changes-provider";
 import {
   createReadingDraftAction,
   recordDeckEventAction,
@@ -203,11 +208,17 @@ export function NewReadingForm({
   // Cancel Confirmation Modal State
   const [isCancelDialogOpen, setIsCancelDialogOpen] = React.useState(false);
 
-  // Step 1 State: Decks, Question, Notes, Consultant, Spread
+  // Unsaved changes protection & Draft tracking
+  const { isDirty, setIsDirty, registerSaveDraftHandler } = useUnsavedChanges();
+  const [currentDraftId, setCurrentDraftId] = React.useState<string | null>(null);
+  const [isSavingDraft, setIsSavingDraft] = React.useState(false);
+
+  // Step 1 State: Decks (persisted reactively to DB), Question, Notes, Consultant, Spread
+  const [availableDecks, setAvailableDecks] = React.useState<Deck[]>(decks);
+  const [isCreatingDeck, setIsCreatingDeck] = React.useState(false);
   const [selectedDeckIds, setSelectedDeckIds] = React.useState<string[]>(
     defaultDeckId ? [defaultDeckId] : decks[0] ? [decks[0].id] : []
   );
-  const [quickNewDecks, setQuickNewDecks] = React.useState<string[]>([]);
   const [registerNewDeckChecked, setRegisterNewDeckChecked] =
     React.useState(false);
   const [pendingDeckName, setPendingDeckName] = React.useState("");
@@ -311,21 +322,18 @@ export function NewReadingForm({
       lenormand: "Lenormand",
       living_wheel: "The Living Wheel",
     };
-    for (const d of decks) {
+    for (const d of availableDecks) {
       map[d.id] = d.name;
       if (d.tradition) {
         map[d.tradition] = d.name;
       }
     }
-    for (const q of quickNewDecks) {
-      map[q] = q;
-    }
     return map;
-  }, [decks, quickNewDecks]);
+  }, [availableDecks]);
 
   // Active custom decks among chosen decks
   const activeCustomDecks = React.useMemo(() => {
-    const activeDecks = decks.filter((d) => selectedDeckIds.includes(d.id));
+    const activeDecks = availableDecks.filter((d) => selectedDeckIds.includes(d.id));
     const list: Array<{ id: string; name: string }> = [];
 
     for (const d of activeDecks) {
@@ -333,15 +341,12 @@ export function NewReadingForm({
         list.push({ id: d.id, name: d.name });
       }
     }
-    for (const q of quickNewDecks) {
-      list.push({ id: q, name: q });
-    }
     return list;
-  }, [decks, selectedDeckIds, quickNewDecks]);
+  }, [availableDecks, selectedDeckIds]);
 
   // Compute strictly filtered cards based on chosen decks
   const availableFilteredCards = React.useMemo(() => {
-    const activeDecks = decks.filter((d) => selectedDeckIds.includes(d.id));
+    const activeDecks = availableDecks.filter((d) => selectedDeckIds.includes(d.id));
     const selectedTraditions = new Set<string>(
       activeDecks.map((d) => d.tradition)
     );
@@ -383,18 +388,15 @@ export function NewReadingForm({
     }
 
     return [];
-  }, [cardsCatalog, decks, selectedDeckIds, activeCustomDecks]);
+  }, [cardsCatalog, availableDecks, selectedDeckIds, activeCustomDecks]);
 
   // Deck traditions labels summary
   const selectedDeckTraditionsLabel = React.useMemo(() => {
-    const activeDecks = decks.filter((d) => selectedDeckIds.includes(d.id));
+    const activeDecks = availableDecks.filter((d) => selectedDeckIds.includes(d.id));
     const labels = activeDecks.map((d) => d.name);
-    for (const q of quickNewDecks) {
-      labels.push(q);
-    }
     if (labels.length === 0) return "Rider-Waite-Smith";
     return labels.join(", ");
-  }, [decks, selectedDeckIds, quickNewDecks]);
+  }, [availableDecks, selectedDeckIds]);
 
   // Deck toggle in Step 1
   const toggleDeckSelection = (deckId: string, checked: boolean) => {
@@ -405,27 +407,44 @@ export function NewReadingForm({
     );
   };
 
-  // Quick deck add / remove
-  const addQuickDeckName = () => {
+  // Register deck immediately to DB
+  const handleRegisterNewDeck = async () => {
     const clean = pendingDeckName.trim();
     if (!clean) return;
     if (
-      quickNewDecks.some((d) => d.toLowerCase() === clean.toLowerCase()) ||
-      decks.some((d) => d.name.toLowerCase() === clean.toLowerCase())
+      availableDecks.some((d) => d.name.toLowerCase() === clean.toLowerCase())
     ) {
       toast.error("Ese nombre de mazo ya está en la lista.");
       return;
     }
-    if (quickNewDecks.length >= 5) {
-      toast.error("Puedes registrar hasta 5 mazos nuevos por lectura.");
-      return;
-    }
-    setQuickNewDecks((prev) => [...prev, clean]);
-    setPendingDeckName("");
-  };
 
-  const removeQuickDeckName = (nameToRemove: string) => {
-    setQuickNewDecks((prev) => prev.filter((n) => n !== nameToRemove));
+    setIsCreatingDeck(true);
+    try {
+      const res = await createQuickDeckAction(clean);
+      if (!res.ok) {
+        toast.error(res.error || "No se pudo registrar el mazo.");
+        return;
+      }
+      if (!res.data) {
+        toast.error("No se pudo registrar el mazo.");
+        return;
+      }
+      const createdDeck = res.data;
+      setAvailableDecks((prev) => [...prev, createdDeck]);
+      setSelectedDeckIds((prev) =>
+        Array.from(new Set([...prev, createdDeck.id]))
+      );
+      setPendingDeckName("");
+      setRegisterNewDeckChecked(false);
+      toast.success(
+        `Mazo «${createdDeck.name}» registrado y guardado en la base de datos.`
+      );
+    } catch (err) {
+      console.error(err);
+      toast.error("Error al registrar el mazo.");
+    } finally {
+      setIsCreatingDeck(false);
+    }
   };
 
   // Custom Spread: Position management
@@ -532,7 +551,7 @@ export function NewReadingForm({
     if (targetStep === currentStep) return;
 
     if (currentStep === 1) {
-      if (selectedDeckIds.length === 0 && quickNewDecks.length === 0) {
+      if (selectedDeckIds.length === 0) {
         toast.error("Por favor selecciona o añade al menos un mazo.");
         return;
       }
@@ -736,29 +755,19 @@ export function NewReadingForm({
     }));
   }, [cardSlots, cardByIdMap, eventPositionIndices]);
 
-  // Final Submit: Save & Complete Reading
-  const handleCompleteAndSave = () => {
-    startTransition(async () => {
-      try {
-        const mergedQuickDecks = [...quickNewDecks];
-        const inlineDraftName = pendingDeckName.trim();
-        if (registerNewDeckChecked && inlineDraftName.length > 0) {
-          if (
-            !mergedQuickDecks.some(
-              (d) => d.toLowerCase() === inlineDraftName.toLowerCase()
-            )
-          ) {
-            mergedQuickDecks.push(inlineDraftName);
-          }
-        }
+  // Save Reading Draft
+  const handleSaveDraft = React.useCallback(async (): Promise<boolean> => {
+    setIsSavingDraft(true);
+    try {
+      const resolvedTitle =
+        sessionTitle.trim() ||
+        (questionIntention.trim()
+          ? questionIntention.trim().slice(0, 72)
+          : `Borrador · ${new Date().toISOString().slice(0, 10)}`);
 
-        const resolvedTitle =
-          sessionTitle.trim() ||
-          (questionIntention.trim()
-            ? questionIntention.trim().slice(0, 72)
-            : `Sesión de lectura · ${new Date().toISOString().slice(0, 10)}`);
+      let readingId = currentDraftId;
 
-        // 1. Create reading draft
+      if (!readingId) {
         const draftRes = await createReadingDraftAction({
           title: resolvedTitle,
           consultantId: isRegisteringNewConsultant
@@ -766,7 +775,7 @@ export function NewReadingForm({
             : consultantId || "",
           appointmentId: initialAppointment?.id ?? "",
           deckIds: selectedDeckIds,
-          quickNewDecks: mergedQuickDecks,
+          quickNewDecks: [],
           quickNewConsultant: isRegisteringNewConsultant
             ? quickConsultantName.trim()
             : undefined,
@@ -789,16 +798,202 @@ export function NewReadingForm({
         });
 
         if (!draftRes.ok) {
-          toast.error(draftRes.error);
-          return;
+          toast.error(draftRes.error || "No se pudo crear el borrador.");
+          return false;
         }
 
         if (!draftRes.data) {
-          toast.error("No se pudo iniciar la lectura.");
-          return;
+          toast.error("No se pudo crear el borrador.");
+          return false;
         }
 
-        const readingId = draftRes.data.id;
+        readingId = draftRes.data.id;
+        setCurrentDraftId(readingId);
+      }
+
+      // Record deck events
+      for (const ev of localDeckEvents) {
+        await recordDeckEventAction({
+          readingId,
+          cardId: ev.cardId,
+          occurredPhase: ev.occurredPhase,
+          phenomenonType: ev.phenomenonType,
+          customPhenomenonLabel: ev.customPhenomenonLabel,
+          linkedPositionIndex: ev.positionIndex,
+          observationDescription: ev.observationDescription,
+          personalInterpretation: ev.personalInterpretation,
+          occurredAt: ev.occurredAt,
+          tags: ev.tags,
+        });
+      }
+
+      // Format cards
+      const formattedCards: ReadingCardInput[] = cardSlots
+        .filter((slot) => slot.cardId && slot.cardId.trim().length > 0)
+        .map((slot) => ({
+          positionIndex: slot.positionIndex,
+          positionTitle:
+            slot.positionTitle.trim() || `Carta ${slot.positionIndex}`,
+          positionPrompt: slot.positionPrompt.trim(),
+          cardId: slot.cardId,
+          orientation: slot.orientation,
+          observationNotes: slot.observationNotes.trim(),
+          contextualInterpretation: slot.contextualInterpretation.trim(),
+          personalTakeaway: slot.personalTakeaway.trim(),
+          syncToGrimorio: slot.syncToGrimorio,
+        }));
+
+      const saveRes = await saveReadingSessionAction({
+        readingId,
+        title: resolvedTitle,
+        consultantId: consultantId || "",
+        deckIds: selectedDeckIds,
+        spreadTemplateId: spreadMode === "classic" ? spreadTemplateId : "",
+        spreadName:
+          spreadMode === "custom"
+            ? spreadName.trim() || `Personalizada (${cardSlots.length} cartas)`
+            : (selectedClassicSpread?.name ?? spreadName),
+        customPositions: cardSlots.map((s) => ({
+          positionIndex: s.positionIndex,
+          title: s.positionTitle.trim() || `Carta ${s.positionIndex}`,
+          prompt: s.positionPrompt.trim(),
+          coordX: s.coordX,
+          coordY: s.coordY,
+        })),
+        questionIntention: questionIntention.trim(),
+        sessionContext: sessionContext.trim(),
+        status: "draft",
+        performedAt,
+        generalObservations: generalObservations.trim(),
+        sessionSynthesis: sessionSynthesis.trim(),
+        closingReflections: "",
+        tags: readingTags,
+        cards: formattedCards,
+      });
+
+      if (!saveRes.ok) {
+        toast.error(saveRes.error || "No se pudo guardar el borrador.");
+        return false;
+      }
+
+      setIsDirty(false);
+      toast.success("Borrador guardado correctamente.");
+      return true;
+    } catch (err) {
+      console.error(err);
+      toast.error("Ocurrió un error al guardar el borrador.");
+      return false;
+    } finally {
+      setIsSavingDraft(false);
+    }
+  }, [
+    currentDraftId,
+    sessionTitle,
+    questionIntention,
+    isRegisteringNewConsultant,
+    consultantId,
+    initialAppointment?.id,
+    selectedDeckIds,
+    quickConsultantName,
+    spreadMode,
+    spreadTemplateId,
+    cardSlots,
+    spreadName,
+    selectedClassicSpread?.name,
+    sessionContext,
+    performedAt,
+    localDeckEvents,
+    generalObservations,
+    sessionSynthesis,
+    readingTags,
+    setIsDirty,
+  ]);
+
+  // Register draft handler with UnsavedChangesProvider
+  React.useEffect(() => {
+    registerSaveDraftHandler(handleSaveDraft);
+    return () => {
+      registerSaveDraftHandler(null);
+    };
+  }, [handleSaveDraft, registerSaveDraftHandler]);
+
+  // Track dirty state
+  React.useEffect(() => {
+    const hasContent =
+      currentStep > 1 ||
+      questionIntention.trim().length > 0 ||
+      sessionContext.trim().length > 0 ||
+      cardSlots.some((s) => s.cardId && s.cardId.trim().length > 0) ||
+      localDeckEvents.length > 0 ||
+      sessionSynthesis.trim().length > 0 ||
+      generalObservations.trim().length > 0;
+
+    setIsDirty(hasContent);
+  }, [
+    currentStep,
+    questionIntention,
+    sessionContext,
+    cardSlots,
+    localDeckEvents,
+    sessionSynthesis,
+    generalObservations,
+    setIsDirty,
+  ]);
+
+  // Final Submit: Save & Complete Reading
+  const handleCompleteAndSave = () => {
+    startTransition(async () => {
+      try {
+        const resolvedTitle =
+          sessionTitle.trim() ||
+          (questionIntention.trim()
+            ? questionIntention.trim().slice(0, 72)
+            : `Sesión de lectura · ${new Date().toISOString().slice(0, 10)}`);
+
+        let readingId = currentDraftId;
+
+        if (!readingId) {
+          const draftRes = await createReadingDraftAction({
+            title: resolvedTitle,
+            consultantId: isRegisteringNewConsultant
+              ? "__new__"
+              : consultantId || "",
+            appointmentId: initialAppointment?.id ?? "",
+            deckIds: selectedDeckIds,
+            quickNewDecks: [],
+            quickNewConsultant: isRegisteringNewConsultant
+              ? quickConsultantName.trim()
+              : undefined,
+            spreadMode,
+            spreadTemplateId: spreadMode === "classic" ? spreadTemplateId : "",
+            spreadName:
+              spreadMode === "custom"
+                ? spreadName.trim() || `Personalizada (${cardSlots.length} cartas)`
+                : (selectedClassicSpread?.name ?? spreadName),
+            customPositions: cardSlots.map((s) => ({
+              positionIndex: s.positionIndex,
+              title: s.positionTitle.trim() || `Carta ${s.positionIndex}`,
+              prompt: s.positionPrompt.trim(),
+              coordX: s.coordX,
+              coordY: s.coordY,
+            })),
+            questionIntention: questionIntention.trim(),
+            sessionContext: sessionContext.trim(),
+            performedAt,
+          });
+
+          if (!draftRes.ok) {
+            toast.error(draftRes.error);
+            return;
+          }
+
+          if (!draftRes.data) {
+            toast.error("No se pudo iniciar la lectura.");
+            return;
+          }
+
+          readingId = draftRes.data.id;
+        }
 
         // 2. Record all physical deck events
         for (const ev of localDeckEvents) {
@@ -835,8 +1030,8 @@ export function NewReadingForm({
         const saveRes = await saveReadingSessionAction({
           readingId,
           title: resolvedTitle,
-          consultantId: draftRes.data.consultantId ?? "",
-          deckIds: draftRes.data.deckIds,
+          consultantId: consultantId || "",
+          deckIds: selectedDeckIds,
           spreadTemplateId: spreadMode === "classic" ? spreadTemplateId : "",
           spreadName:
             spreadMode === "custom"
@@ -868,6 +1063,7 @@ export function NewReadingForm({
           return;
         }
 
+        setIsDirty(false);
         toast.success("¡Lectura completada y guardada con éxito!");
         router.push(`/lecturas/${readingId}`);
         router.refresh();
@@ -880,6 +1076,7 @@ export function NewReadingForm({
 
   // Cancel Confirmation Handler
   const handleConfirmCancel = () => {
+    setIsDirty(false);
     setIsCancelDialogOpen(false);
     toast.info("Lectura cancelada.");
     router.push("/lecturas");
@@ -958,6 +1155,23 @@ export function NewReadingForm({
               );
             })}
           </div>
+
+          {/* Save Draft button */}
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => handleSaveDraft()}
+            disabled={isSavingDraft || isPending}
+            className="h-8 px-2.5 text-xs text-muted hover:text-ink flex items-center gap-1.5 border-border"
+            title="Guardar como borrador"
+          >
+            <Bookmark className="size-3.5" aria-hidden="true" />
+            <span className="hidden sm:inline">
+              {isSavingDraft ? "Guardando..." : "Guardar borrador"}
+            </span>
+            <span className="sm:hidden">Borrador</span>
+          </Button>
 
           {/* Cancel button present on all steps */}
           <Button
@@ -1092,7 +1306,7 @@ export function NewReadingForm({
               </div>
 
               <div className="divide-y divide-rule rounded-xl border border-border bg-ground">
-                {decks.map((d) => {
+                {availableDecks.map((d) => {
                   const checked = selectedDeckIds.includes(d.id);
                   return (
                     <label
@@ -1141,7 +1355,7 @@ export function NewReadingForm({
                       }
                     />
                     <span className="text-sm font-medium text-accent">
-                      Registrar mazo
+                      Registrar mazo nuevo
                     </span>
                   </label>
 
@@ -1155,42 +1369,28 @@ export function NewReadingForm({
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault();
-                              addQuickDeckName();
+                              handleRegisterNewDeck();
                             }
                           }}
                           placeholder="Escribe el nombre del mazo (ej. Tarot Egipcio)…"
+                          disabled={isCreatingDeck}
                         />
                         <Button
                           type="button"
                           variant="secondary"
-                          onClick={addQuickDeckName}
+                          onClick={handleRegisterNewDeck}
+                          disabled={isCreatingDeck}
                           className="shrink-0"
                         >
                           <Plus className="size-3.5" aria-hidden="true" />
-                          <span>Añadir mazo</span>
+                          <span>
+                            {isCreatingDeck ? "Guardando…" : "Añadir mazo"}
+                          </span>
                         </Button>
                       </div>
-                    </div>
-                  ) : null}
-
-                  {quickNewDecks.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5 pl-6">
-                      {quickNewDecks.map((deckName) => (
-                        <span
-                          key={deckName}
-                          className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-surface px-2.5 py-1 text-xs font-medium text-ink"
-                        >
-                          <span>Nuevo: {deckName}</span>
-                          <button
-                            type="button"
-                            onClick={() => removeQuickDeckName(deckName)}
-                            aria-label={`Quitar mazo ${deckName}`}
-                            className="text-muted hover:text-negative cursor-pointer"
-                          >
-                            <X className="size-3.5" aria-hidden="true" />
-                          </button>
-                        </span>
-                      ))}
+                      <p className="text-[11px] text-muted">
+                        El mazo se guardará automáticamente en tu biblioteca de mazos.
+                      </p>
                     </div>
                   ) : null}
                 </div>
@@ -1383,14 +1583,26 @@ export function NewReadingForm({
               >
                 Cancelar lectura
               </Button>
-              <Button
-                type="button"
-                variant="primary"
-                onClick={handleNextStep1}
-              >
-                <span>Siguiente: Indicar cartas y notas</span>
-                <ArrowRight className="size-4" aria-hidden="true" />
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => handleSaveDraft()}
+                  disabled={isSavingDraft || isPending}
+                  className="flex items-center gap-1.5 border-border"
+                >
+                  <Bookmark className="size-4" aria-hidden="true" />
+                  <span>{isSavingDraft ? "Guardando…" : "Guardar borrador"}</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={handleNextStep1}
+                >
+                  <span>Siguiente: Indicar cartas y notas</span>
+                  <ArrowRight className="size-4" aria-hidden="true" />
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -1757,36 +1969,48 @@ export function NewReadingForm({
             })}
           </div>
 
-          {/* Bottom Actions for Step 2 */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={handleBackToStep1}
-              >
-                <ArrowLeft className="size-4" aria-hidden="true" />
-                <span>Volver a Configuración</span>
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setIsCancelDialogOpen(true)}
-                className="text-muted hover:text-negative"
-              >
-                Cancelar lectura
-              </Button>
-            </div>
+            {/* Bottom Actions for Step 2 */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleBackToStep1}
+                >
+                  <ArrowLeft className="size-4" aria-hidden="true" />
+                  <span>Volver a Configuración</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setIsCancelDialogOpen(true)}
+                  className="text-muted hover:text-negative"
+                >
+                  Cancelar lectura
+                </Button>
+              </div>
 
-            <Button
-              type="button"
-              variant="primary"
-              onClick={handleNextStep2}
-            >
-              <span>Siguiente: Acomodar cartas en la mesa</span>
-              <ArrowRight className="size-4" aria-hidden="true" />
-            </Button>
-          </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => handleSaveDraft()}
+                  disabled={isSavingDraft || isPending}
+                  className="flex items-center gap-1.5 border-border"
+                >
+                  <Bookmark className="size-4" aria-hidden="true" />
+                  <span>{isSavingDraft ? "Guardando…" : "Guardar borrador"}</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={handleNextStep2}
+                >
+                  <span>Siguiente: Acomodar cartas en la mesa</span>
+                  <ArrowRight className="size-4" aria-hidden="true" />
+                </Button>
+              </div>
+            </div>
         </div>
       )}
 
@@ -1916,21 +2140,35 @@ export function NewReadingForm({
               </Button>
             </div>
 
-            <Button
-              type="button"
-              variant="primary"
-              size="lg"
-              onClick={handleCompleteAndSave}
-              disabled={isPending}
-              className="font-medium"
-            >
-              <Sparkles className="size-4" aria-hidden="true" />
-              <span>
-                {isPending
-                  ? "Guardando lectura…"
-                  : "Completar y guardar lectura"}
-              </span>
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="lg"
+                onClick={() => handleSaveDraft()}
+                disabled={isSavingDraft || isPending}
+                className="flex items-center gap-1.5 border-border"
+              >
+                <Bookmark className="size-4" aria-hidden="true" />
+                <span>{isSavingDraft ? "Guardando…" : "Guardar borrador"}</span>
+              </Button>
+
+              <Button
+                type="button"
+                variant="primary"
+                size="lg"
+                onClick={handleCompleteAndSave}
+                disabled={isPending}
+                className="font-medium"
+              >
+                <Sparkles className="size-4" aria-hidden="true" />
+                <span>
+                  {isPending
+                    ? "Guardando lectura…"
+                    : "Completar y guardar lectura"}
+                </span>
+              </Button>
+            </div>
           </div>
         </div>
       )}

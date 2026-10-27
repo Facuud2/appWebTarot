@@ -145,7 +145,12 @@ export async function listAllCardsIncludingCustom(
       .prepare("SELECT * FROM cards_catalog ORDER BY rank_number ASC")
       .all()) as unknown as CanonicalCardRow[];
     if (rows && rows.length > 0) {
-      return rows.map(mapCanonicalCardRow);
+      const dbCards = rows.map(mapCanonicalCardRow);
+      const dbCardIds = new Set(dbCards.map((c) => c.id));
+      const missingCanonical = CANONICAL_TAROT_CARDS.filter(
+        (c) => !dbCardIds.has(c.id)
+      );
+      return [...dbCards, ...missingCanonical];
     }
   } catch {
     // fallback if table query fails

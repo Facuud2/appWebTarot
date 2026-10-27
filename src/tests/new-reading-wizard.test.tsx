@@ -40,6 +40,49 @@ vi.mock("@/actions/reading-actions", () => ({
   }),
 }));
 
+vi.mock("@/actions/grimorio-actions", () => ({
+  createQuickDeckAction: vi.fn().mockImplementation((name: string) =>
+    Promise.resolve({
+      ok: true,
+      data: {
+        id: `deck-custom-${name.toLowerCase().replace(/\s+/g, "-")}`,
+        userId: "user-1",
+        name,
+        tradition: "other",
+        author: null,
+        cardCount: 78,
+        readingsCount: 0,
+        description: "",
+        isDefault: false,
+        needsSetup: false,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    })
+  ),
+  registerCustomCardAction: vi.fn().mockImplementation(
+    ({ name, deckId }: { name: string; deckId: string }) =>
+      Promise.resolve({
+        ok: true,
+        data: {
+          id: `card-custom-${name.toLowerCase().replace(/\s+/g, "-")}`,
+          slug: `custom-${name.toLowerCase()}`,
+          arcana: "custom",
+          suit: null,
+          rankNumber: 1,
+          romanNumeral: null,
+          canonicalName: name,
+          nameEn: name,
+          deckTradition: deckId,
+          searchKeywords: [],
+          traditionalUpright: "",
+          traditionalReversed: "",
+          traditionalKeywords: [],
+          archetypeNote: "",
+        },
+      })
+  ),
+}));
+
 const sampleDecks: Deck[] = [
   {
     id: "deck-rws",
@@ -243,5 +286,75 @@ describe("3-step New Reading Wizard (Lectura Nueva direct flow)", () => {
     // Thoth cards like "Ajuste" or "Deseo" or "El Loco (The Fool)" in Thoth should exist
     // But Living Wheel unique cards like "Aries" or "Tauro" should NOT be present
     expect(screen.queryByText(/Aries · Signo de Fuego/i)).not.toBeInTheDocument();
+  });
+
+  it("supports saving a reading as draft at any time with the 'Guardar borrador' button", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <NewReadingForm
+        consultants={[]}
+        decks={sampleDecks}
+        spreads={sampleSpreads}
+        cardsCatalog={CANONICAL_TAROT_CARDS}
+        defaultDeckId="deck-rws"
+        defaultSpreadId="spread-triad-observation"
+      />
+    );
+
+    // Fill in question intention
+    const intentionInput = screen.getByLabelText(/Pregunta o tema de la consulta/i);
+    await user.type(intentionInput, "Pregunta para borrador en curso");
+
+    // Click "Guardar borrador" in header
+    const draftBtns = screen.getAllByRole("button", {
+      name: /Guardar borrador|Guardar como borrador/i,
+    });
+    expect(draftBtns.length).toBeGreaterThan(0);
+    await user.click(draftBtns[0]);
+
+    const { createReadingDraftAction, saveReadingSessionAction } = await import(
+      "@/actions/reading-actions"
+    );
+    expect(createReadingDraftAction).toHaveBeenCalled();
+    expect(saveReadingSessionAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "draft",
+        questionIntention: "Pregunta para borrador en curso",
+      })
+    );
+  });
+
+  it("immediately creates and registers a custom deck into the list as checked", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <NewReadingForm
+        consultants={[]}
+        decks={sampleDecks}
+        spreads={sampleSpreads}
+        cardsCatalog={CANONICAL_TAROT_CARDS}
+        defaultDeckId="deck-rws"
+        defaultSpreadId="spread-triad-observation"
+      />
+    );
+
+    // Check "Registrar mazo nuevo"
+    const registerDeckCheckbox = screen.getByLabelText(/Registrar mazo nuevo/i);
+    await user.click(registerDeckCheckbox);
+
+    // Input new deck name
+    const deckInput = screen.getByPlaceholderText(/Escribe el nombre del mazo/i);
+    await user.type(deckInput, "Tarot Místico Botánico");
+
+    // Click Añadir mazo
+    const addDeckBtn = screen.getByRole("button", { name: /Añadir mazo/i });
+    await user.click(addDeckBtn);
+
+    const { createQuickDeckAction } = await import("@/actions/grimorio-actions");
+    expect(createQuickDeckAction).toHaveBeenCalledWith("Tarot Místico Botánico");
+
+    // The new deck is now in the list of decks
+    expect(screen.getByText("Tarot Místico Botánico")).toBeInTheDocument();
   });
 });
