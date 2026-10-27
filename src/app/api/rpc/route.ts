@@ -31,9 +31,12 @@ import {
 } from "@/repositories/readings-repository";
 import {
   authenticateUser,
+  completeUserOnboarding,
   getDemoUser,
   importWorkspaceBackup,
   registerNewUser,
+  resetUserOnboarding,
+  saveUserOnboardingProgress,
   updateUserWorkspaceProfile,
 } from "@/repositories/users-repository";
 import {
@@ -44,6 +47,7 @@ import {
   deckEventFormSchema,
   deckFormSchema,
   loginSchema,
+  onboardingProgressSchema,
   personalCardEntrySchema,
   registerSchema,
   spreadTemplateFormSchema,
@@ -634,6 +638,57 @@ export async function POST(request: Request): Promise<NextResponse> {
         });
       }
 
+      case "onboarding.saveProgress": {
+        const parsed = onboardingProgressSchema.safeParse(payload);
+        if (!parsed.success) {
+          return jsonResult({
+            ok: false,
+            error:
+              parsed.error.issues[0]?.message ??
+              "Revisa los datos del paso de onboarding.",
+          });
+        }
+        const updatedUser = saveUserOnboardingProgress(user.id, parsed.data);
+        const session = await createUserSession(updatedUser, request);
+        safeRevalidatePath("/", "layout");
+        safeRevalidatePath("/onboarding");
+        const res = jsonResult({
+          ok: true,
+          data: updatedUser,
+          message: "Progreso guardado correctamente.",
+        });
+        res.cookies.set(SESSION_COOKIE_NAME, session.signedToken, session.cookieOptions);
+        return res;
+      }
+
+      case "onboarding.complete": {
+        const updatedUser = completeUserOnboarding(user.id);
+        const session = await createUserSession(updatedUser, request);
+        safeRevalidatePath("/", "layout");
+        safeRevalidatePath("/onboarding");
+        const res = jsonResult({
+          ok: true,
+          data: updatedUser,
+          message: "¡Bienvenido a tu mesa de trabajo!",
+        });
+        res.cookies.set(SESSION_COOKIE_NAME, session.signedToken, session.cookieOptions);
+        return res;
+      }
+
+      case "onboarding.reset": {
+        const updatedUser = resetUserOnboarding(user.id);
+        const session = await createUserSession(updatedUser, request);
+        safeRevalidatePath("/", "layout");
+        safeRevalidatePath("/onboarding");
+        const res = jsonResult({
+          ok: true,
+          data: updatedUser,
+          message: "Tutorial reiniciado.",
+        });
+        res.cookies.set(SESSION_COOKIE_NAME, session.signedToken, session.cookieOptions);
+        return res;
+      }
+
       case "workspace.updateProfile": {
         const parsed = workspaceProfileSchema.safeParse(payload);
         if (!parsed.success) {
@@ -645,13 +700,16 @@ export async function POST(request: Request): Promise<NextResponse> {
           });
         }
         const updated = updateUserWorkspaceProfile(user.id, parsed.data);
+        const session = await createUserSession(updated, request);
         safeRevalidatePath("/", "layout");
         safeRevalidatePath("/ajustes");
-        return jsonResult({
+        const res = jsonResult({
           ok: true,
           data: updated,
           message: "Preferencias guardadas.",
         });
+        res.cookies.set(SESSION_COOKIE_NAME, session.signedToken, session.cookieOptions);
+        return res;
       }
 
       case "workspace.importBackup": {

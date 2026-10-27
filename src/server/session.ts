@@ -9,9 +9,9 @@ import {
   verifySignedPayloadToken,
   verifySignedSessionToken,
 } from "@/server/crypto-auth";
-import { getDb } from "@/server/db";
+import { DEMO_USER_ID, getDb, getDemoDb } from "@/server/db";
 import { BUILTIN_DECKS } from "@/lib/tarot-catalog";
-import type { User, UserPreferences } from "@/types/domain";
+import type { User, UserOnboardingState, UserPreferences } from "@/types/domain";
 
 export const SESSION_COOKIE_NAME = "grimorio_session";
 const SESSION_DURATION_DAYS = 30;
@@ -37,7 +37,85 @@ interface UserRow {
   created_at: string;
 }
 
-function parseUserPreferences(json: string): UserPreferences {
+export function defaultOnboardingState(completed = false): UserOnboardingState {
+  return {
+    completed,
+    currentStep: 1,
+    experienceLevel: null,
+    usagePurposes: [],
+    selectedDeckId: null,
+    customDeckCreatedId: null,
+    skippedAppointmentDemo: false,
+    createdAppointmentId: null,
+    skippedReadingDemo: false,
+    createdReadingId: null,
+    readingTargetType: null,
+    targetConsultantId: null,
+    completedAt: completed ? new Date().toISOString() : null,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export function parseOnboardingState(
+  raw: unknown,
+  isDemo = false
+): UserOnboardingState {
+  if (typeof raw === "object" && raw !== null) {
+    const r = raw as Record<string, unknown>;
+    return {
+      completed: typeof r.completed === "boolean" ? r.completed : isDemo,
+      currentStep:
+        typeof r.currentStep === "number" &&
+        r.currentStep >= 1 &&
+        r.currentStep <= 6
+          ? r.currentStep
+          : 1,
+      experienceLevel:
+        r.experienceLevel === "novice" ||
+        r.experienceLevel === "intermediate" ||
+        r.experienceLevel === "professional"
+          ? r.experienceLevel
+          : null,
+      usagePurposes: Array.isArray(r.usagePurposes)
+        ? r.usagePurposes.filter(
+            (item): item is string => typeof item === "string"
+          )
+        : [],
+      selectedDeckId:
+        typeof r.selectedDeckId === "string" ? r.selectedDeckId : null,
+      customDeckCreatedId:
+        typeof r.customDeckCreatedId === "string"
+          ? r.customDeckCreatedId
+          : null,
+      skippedAppointmentDemo: Boolean(r.skippedAppointmentDemo),
+      createdAppointmentId:
+        typeof r.createdAppointmentId === "string"
+          ? r.createdAppointmentId
+          : null,
+      skippedReadingDemo: Boolean(r.skippedReadingDemo),
+      createdReadingId:
+        typeof r.createdReadingId === "string" ? r.createdReadingId : null,
+      readingTargetType:
+        r.readingTargetType === "for_me" ||
+        r.readingTargetType === "no_consultant" ||
+        r.readingTargetType === "consultant"
+          ? r.readingTargetType
+          : null,
+      targetConsultantId:
+        typeof r.targetConsultantId === "string"
+          ? r.targetConsultantId
+          : null,
+      completedAt: typeof r.completedAt === "string" ? r.completedAt : null,
+      updatedAt:
+        typeof r.updatedAt === "string"
+          ? r.updatedAt
+          : new Date().toISOString(),
+    };
+  }
+  return defaultOnboardingState(isDemo);
+}
+
+export function parseUserPreferences(json: string, isDemo = false): UserPreferences {
   try {
     const parsed: unknown = JSON.parse(json);
     if (typeof parsed === "object" && parsed !== null) {
@@ -52,6 +130,7 @@ function parseUserPreferences(json: string): UserPreferences {
           typeof rec.autosaveReadings === "boolean"
             ? rec.autosaveReadings
             : true,
+        onboarding: parseOnboardingState(rec.onboarding, isDemo),
       };
     }
   } catch {
@@ -62,17 +141,19 @@ function parseUserPreferences(json: string): UserPreferences {
     defaultSpreadId: null,
     compactTables: false,
     autosaveReadings: true,
+    onboarding: defaultOnboardingState(isDemo),
   };
 }
 
 export function mapUserRow(row: UserRow): User {
+  const isDemo = row.is_demo === 1;
   return {
     id: row.id,
     email: row.email,
     name: row.name,
     workspaceName: row.workspace_name,
-    isDemo: row.is_demo === 1,
-    preferences: parseUserPreferences(row.preferences_json),
+    isDemo,
+    preferences: parseUserPreferences(row.preferences_json, isDemo),
     createdAt: row.created_at,
   };
 }
@@ -123,16 +204,36 @@ export function getUserFromToken(signed: string): User | null {
       createdAt: payload.createdAt || new Date().toISOString(),
     };
 
-    // Asegurar que el usuario exista en la instancia SQLite local de esta lambda para integridad relacional
+    // Para usuarios de demostración, usar la base en memoria y nunca tocar la base física
+    if (user.isDemo || user.id === DEMO_USER_ID) {
+      try {
+        const demoDb = getDemoDb();
+        const existing = demoDb
+          .prepare("SELECT * FROM users WHERE id = ?")
+          .get(DEMO_USER_ID) as UserRow | undefined;
+        if (existing) {
+          return mapUserRow(existing);
+        }
+        return user;
+      } catch {
+        return user;
+      }
+    }
+
+    // Asegurar que el usuario exista en la instancia SQLite local y leer sus datos vigentes
     try {
       const db = getDb();
+      const existing = db
+        .prepare("SELECT * FROM users WHERE id = ?")
+        .get(payload.userId) as UserRow | undefined;
+
+      if (existing) {
+        return mapUserRow(existing);
+      }
+
       db.prepare(`
         INSERT INTO users (id, email, name, workspace_name, password_hash, is_demo, preferences_json, created_at)
         VALUES (?, ?, ?, ?, '', ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          name = excluded.name,
-          workspace_name = excluded.workspace_name,
-          preferences_json = excluded.preferences_json
       `).run(
         user.id,
         user.email,
@@ -201,7 +302,10 @@ export async function createUserSession(
   userOrId: User | string,
   request?: Request
 ): Promise<SessionCreationResult> {
-  const db = getDb();
+  const isDemo =
+    (typeof userOrId === "object" && userOrId !== null && userOrId.isDemo) ||
+    userOrId === DEMO_USER_ID;
+  const db = isDemo ? getDemoDb() : getDb();
   let user: User;
 
   if (typeof userOrId === "string") {

@@ -69,7 +69,7 @@ export interface ListAppointmentsOptions {
 export function listAppointments(
   userId: string,
   options: ListAppointmentsOptions = {},
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Appointment[] {
   const conditions: string[] = ["a.user_id = ?"];
   const params: Array<string | number> = [userId];
@@ -112,7 +112,7 @@ export function listAppointments(
 export function listAppointmentsForConsultant(
   userId: string,
   consultantId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Appointment[] {
   return listAppointments(
     userId,
@@ -124,7 +124,7 @@ export function listAppointmentsForConsultant(
 export function getAppointmentById(
   userId: string,
   appointmentId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Appointment | null {
   const row = db
     .prepare(
@@ -145,7 +145,7 @@ export function getAppointmentById(
 export function createAppointment(
   userId: string,
   values: AppointmentFormValues,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Appointment {
   let consultantId = values.consultantId.trim();
 
@@ -207,7 +207,7 @@ export function updateAppointment(
   userId: string,
   appointmentId: string,
   values: AppointmentFormValues,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Appointment {
   const consultantCheck = db
     .prepare("SELECT id FROM consultants WHERE user_id = ? AND id = ?")
@@ -269,7 +269,7 @@ export function updateAppointmentStatus(
   userId: string,
   appointmentId: string,
   status: AppointmentStatus,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Appointment {
   const nowIso = new Date().toISOString();
   const res = db
@@ -292,7 +292,7 @@ export function updateAppointmentStatus(
 export function deleteAppointment(
   userId: string,
   appointmentId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): void {
   const res = db
     .prepare("DELETE FROM appointments WHERE user_id = ? AND id = ?")

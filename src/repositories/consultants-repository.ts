@@ -71,7 +71,7 @@ export interface ListConsultantsOptions {
 export function listConsultants(
   userId: string,
   options: ListConsultantsOptions = {},
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Consultant[] {
   const nowIso = new Date().toISOString();
   const params: Array<string | number> = [nowIso, userId];
@@ -123,7 +123,7 @@ export function listConsultants(
 export function getConsultantById(
   userId: string,
   consultantId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Consultant | null {
   const nowIso = new Date().toISOString();
   const row = db
@@ -145,7 +145,7 @@ export function getConsultantById(
 export function getConsultantDetail(
   userId: string,
   consultantId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): ConsultantDetail | null {
   const consultant = getConsultantById(userId, consultantId, db);
   if (!consultant) return null;
@@ -189,7 +189,7 @@ export function getConsultantDetail(
 export function createConsultant(
   userId: string,
   values: ConsultantFormValues,
-  db: DatabaseSync = getDb(),
+  db: DatabaseSync = getDb(userId),
   options?: { needsSetup?: boolean }
 ): Consultant {
   const id = `cons-${randomUUID()}`;
@@ -237,7 +237,7 @@ export function createConsultant(
 export function createQuickConsultant(
   userId: string,
   rawName: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Consultant {
   const cleanName = rawName.trim();
   return createConsultant(
@@ -261,7 +261,7 @@ export function updateConsultant(
   userId: string,
   consultantId: string,
   values: ConsultantFormValues,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Consultant {
   const existing = getConsultantById(userId, consultantId, db);
   if (!existing) {
@@ -321,7 +321,7 @@ export function setConsultantArchived(
   userId: string,
   consultantId: string,
   archived: boolean,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Consultant {
   const nowIso = new Date().toISOString();
   const res = db
@@ -346,7 +346,7 @@ export function setConsultantArchived(
 export function deleteConsultant(
   userId: string,
   consultantId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): void {
   db.exec("BEGIN");
   try {

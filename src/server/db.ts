@@ -506,6 +506,30 @@ function migrateDatabaseSchema(db: DatabaseSync): void {
   }
 }
 
+export function cleanupDemoDataFromDatabase(db: DatabaseSync): void {
+  try {
+    db.exec(`
+      DELETE FROM entity_tags WHERE entity_type = 'consultant' AND entity_id IN (SELECT id FROM consultants WHERE user_id = '${DEMO_USER_ID}');
+      DELETE FROM entity_tags WHERE entity_type = 'reading' AND entity_id IN (SELECT id FROM readings WHERE user_id = '${DEMO_USER_ID}');
+      DELETE FROM entity_tags WHERE entity_type = 'deck_event' AND entity_id IN (SELECT id FROM deck_events WHERE user_id = '${DEMO_USER_ID}');
+      DELETE FROM entity_tags WHERE entity_type = 'card_entry' AND entity_id IN (SELECT id FROM card_entries WHERE user_id = '${DEMO_USER_ID}');
+      DELETE FROM reading_cards WHERE reading_id IN (SELECT id FROM readings WHERE user_id = '${DEMO_USER_ID}');
+      DELETE FROM card_interpretation_logs WHERE user_id = '${DEMO_USER_ID}';
+      DELETE FROM card_entries WHERE user_id = '${DEMO_USER_ID}';
+      DELETE FROM deck_events WHERE user_id = '${DEMO_USER_ID}';
+      DELETE FROM appointments WHERE user_id = '${DEMO_USER_ID}';
+      DELETE FROM readings WHERE user_id = '${DEMO_USER_ID}';
+      DELETE FROM consultants WHERE user_id = '${DEMO_USER_ID}';
+      DELETE FROM decks WHERE user_id = '${DEMO_USER_ID}';
+      DELETE FROM tags WHERE user_id = '${DEMO_USER_ID}';
+      DELETE FROM sessions WHERE user_id = '${DEMO_USER_ID}';
+      DELETE FROM users WHERE is_demo = 1 OR id = '${DEMO_USER_ID}';
+    `);
+  } catch {
+    // ignore
+  }
+}
+
 function syncBuiltinDecks(db: DatabaseSync): void {
   const users = db.prepare("SELECT id FROM users").all() as Array<{ id: string }>;
   const nowIso = "2026-01-01T00:00:00.000Z";
@@ -579,6 +603,26 @@ export function seedDemoWorkspaceIfMissing(db: DatabaseSync): void {
         defaultSpreadId: "spread-simple-cross",
         compactTables: false,
         autosaveReadings: true,
+        onboarding: {
+          completed: true,
+          currentStep: 6,
+          experienceLevel: "professional",
+          usagePurposes: [
+            "client_sessions",
+            "comparative_study",
+            "phenomena_tracking",
+          ],
+          selectedDeckId: "deck-rws-centennial",
+          customDeckCreatedId: null,
+          skippedAppointmentDemo: false,
+          createdAppointmentId: "appt-hoy-mariana",
+          skippedReadingDemo: false,
+          createdReadingId: "read-mariana-estudio",
+          readingTargetType: "consultant",
+          targetConsultantId: "cons-mariana",
+          completedAt: isoOffset(-59, 10, 0),
+          updatedAt: isoOffset(-59, 10, 0),
+        },
       }),
       isoOffset(-60, 9, 0)
     );
@@ -1249,8 +1293,10 @@ export function createDatabaseInstance(
   syncCanonicalCatalog(db);
   syncBuiltinDecks(db);
 
-  if (options?.seedDemo !== false) {
+  if (options?.seedDemo === true) {
     seedDemoWorkspaceIfMissing(db);
+  } else if (finalPath !== ":memory:") {
+    cleanupDemoDataFromDatabase(db);
   }
 
   return db;
@@ -1259,9 +1305,36 @@ export function createDatabaseInstance(
 const globalForDb = globalThis as unknown as {
   __grimorioDb?: DatabaseSync;
   __grimorioDbPath?: string;
+  __grimorioDemoDb?: DatabaseSync;
 };
 
-export function getDb(): DatabaseSync {
+export function getDemoDb(): DatabaseSync {
+  if (!globalForDb.__grimorioDemoDb) {
+    globalForDb.__grimorioDemoDb = createDatabaseInstance(":memory:", {
+      seedDemo: true,
+    });
+  }
+  return globalForDb.__grimorioDemoDb;
+}
+
+export function resetDemoDb(): void {
+  if (globalForDb.__grimorioDemoDb) {
+    try {
+      globalForDb.__grimorioDemoDb.close();
+    } catch {
+      // ignore
+    }
+  }
+  globalForDb.__grimorioDemoDb = createDatabaseInstance(":memory:", {
+    seedDemo: true,
+  });
+}
+
+export function getDb(userId?: string): DatabaseSync {
+  if (userId === DEMO_USER_ID) {
+    return getDemoDb();
+  }
+
   const configuredPath = resolveDatabasePath();
   if (
     globalForDb.__grimorioDb &&
@@ -1270,7 +1343,7 @@ export function getDb(): DatabaseSync {
     return globalForDb.__grimorioDb;
   }
 
-  const db = createDatabaseInstance(configuredPath, { seedDemo: true });
+  const db = createDatabaseInstance(configuredPath, { seedDemo: false });
   globalForDb.__grimorioDb = db;
   globalForDb.__grimorioDbPath = configuredPath;
   return db;

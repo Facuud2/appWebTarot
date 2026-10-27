@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { SettingsClient } from "@/features/settings/settings-client";
 import {
-  listDecks,
+  listAvailableDecks,
   listSpreadTemplates,
 } from "@/repositories/grimorio-repository";
 import { requireUser } from "@/server/session";
@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 
 export default async function SettingsPage() {
   const user = await requireUser();
-  const decks = listDecks(user.id);
+  const decks = listAvailableDecks(user.id);
   const spreads = listSpreadTemplates(user.id);
 
   return (

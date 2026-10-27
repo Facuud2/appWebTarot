@@ -4,7 +4,10 @@ import { randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { listAppointments } from "@/repositories/appointments-repository";
 import { listConsultants } from "@/repositories/consultants-repository";
-import { listDecks, listGrimorioCards } from "@/repositories/grimorio-repository";
+import {
+  listDecks,
+  listGrimorioCards,
+} from "@/repositories/grimorio-repository";
 import { getReadingDetail, listReadings } from "@/repositories/readings-repository";
 import { syncEntityTags } from "@/repositories/tags-repository";
 import type {
@@ -14,9 +17,9 @@ import type {
 } from "@/schemas/domain";
 import { workspaceBackupSchema } from "@/schemas/domain";
 import { hashPassword, verifyPassword } from "@/server/crypto-auth";
-import { DEMO_USER_ID, getDb, seedDemoWorkspaceIfMissing } from "@/server/db";
-import { mapUserRow } from "@/server/session";
-import type { User, WorkspaceBackupPayload } from "@/types/domain";
+import { DEMO_USER_ID, getDb, getDemoDb, seedDemoWorkspaceIfMissing } from "@/server/db";
+import { defaultOnboardingState, mapUserRow, parseUserPreferences } from "@/server/session";
+import type { User, UserOnboardingState, UserPreferences, WorkspaceBackupPayload } from "@/types/domain";
 
 interface AuthUserRow {
   id: string;
@@ -46,7 +49,7 @@ export function authenticateUser(
   return mapUserRow(row);
 }
 
-export function getDemoUser(db: DatabaseSync = getDb()): User {
+export function getDemoUser(db: DatabaseSync = getDemoDb()): User {
   let row = db
     .prepare("SELECT * FROM users WHERE id = ?")
     .get(DEMO_USER_ID) as AuthUserRow | undefined;
@@ -85,11 +88,12 @@ export function registerNewUser(
       ? rawWorkspace
       : `Mesa de ${input.name.trim()}`;
 
-  const prefs = {
+  const prefs: UserPreferences = {
     defaultDeckId: null,
     defaultSpreadId: "spread-triad-observation",
     compactTables: false,
     autosaveReadings: true,
+    onboarding: defaultOnboardingState(false),
   };
 
   db.exec("BEGIN");
@@ -126,7 +130,7 @@ export function registerNewUser(
 export function updateUserWorkspaceProfile(
   userId: string,
   values: WorkspaceProfileValues,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): User {
   const prefs = {
     defaultDeckId: values.defaultDeckId.trim() || null,
@@ -161,9 +165,87 @@ export function updateUserWorkspaceProfile(
   return mapUserRow(row);
 }
 
+export function saveUserOnboardingProgress(
+  userId: string,
+  progress: Partial<UserOnboardingState>,
+  db: DatabaseSync = getDb(userId)
+): User {
+  const row = db
+    .prepare("SELECT * FROM users WHERE id = ?")
+    .get(userId) as AuthUserRow | undefined;
+
+  if (!row) {
+    throw new Error("No se encontró el usuario para guardar el progreso.");
+  }
+
+  const isDemo = row.is_demo === 1;
+  const currentPrefs = parseUserPreferences(row.preferences_json, isDemo);
+  const currentOnboarding =
+    currentPrefs.onboarding ?? defaultOnboardingState(isDemo);
+
+  const updatedOnboarding: UserOnboardingState = {
+    ...currentOnboarding,
+    ...progress,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const updatedPrefs: UserPreferences = {
+    ...currentPrefs,
+    onboarding: updatedOnboarding,
+  };
+
+  if (progress.selectedDeckId !== undefined) {
+    updatedPrefs.defaultDeckId = progress.selectedDeckId;
+  }
+
+  db.prepare(
+    "UPDATE users SET preferences_json = ? WHERE id = ?"
+  ).run(JSON.stringify(updatedPrefs), userId);
+
+  const updatedRow = db
+    .prepare("SELECT * FROM users WHERE id = ?")
+    .get(userId) as AuthUserRow | undefined;
+
+  if (!updatedRow) {
+    throw new Error("No se pudo leer el usuario actualizado.");
+  }
+
+  return mapUserRow(updatedRow);
+}
+
+export function completeUserOnboarding(
+  userId: string,
+  db: DatabaseSync = getDb(userId)
+): User {
+  return saveUserOnboardingProgress(
+    userId,
+    {
+      completed: true,
+      currentStep: 6,
+      completedAt: new Date().toISOString(),
+    },
+    db
+  );
+}
+
+export function resetUserOnboarding(
+  userId: string,
+  db: DatabaseSync = getDb(userId)
+): User {
+  return saveUserOnboardingProgress(
+    userId,
+    {
+      completed: false,
+      currentStep: 1,
+      completedAt: null,
+    },
+    db
+  );
+}
+
 export function exportWorkspaceBackup(
   userId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): WorkspaceBackupPayload {
   const userRow = db
     .prepare("SELECT workspace_name FROM users WHERE id = ?")
@@ -285,7 +367,7 @@ export function exportWorkspaceBackup(
 export function importWorkspaceBackup(
   userId: string,
   rawJson: unknown,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): { importedReadings: number; importedConsultants: number } {
   const parsed = workspaceBackupSchema.safeParse(rawJson);
   if (!parsed.success) {

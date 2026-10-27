@@ -26,7 +26,7 @@ export function mapTagRow(row: TagRow): Tag {
 export function listUserTags(
   userId: string,
   category?: TagCategory,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Tag[] {
   const rows = category
     ? (db
@@ -53,7 +53,7 @@ export function getTagsForEntity(
   userId: string,
   entityType: TaggableEntityType,
   entityId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Tag[] {
   const rows = db
     .prepare(
@@ -74,7 +74,7 @@ export function syncEntityTags(
   entityId: string,
   tagNames: string[],
   defaultCategory: TagCategory,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Tag[] {
   db.prepare(
     `DELETE FROM entity_tags

@@ -26,6 +26,7 @@ import type {
   TarotSuit,
 } from "@/types/domain";
 import { listDeckEventsWithContext } from "@/repositories/readings-repository";
+import { BUILTIN_DECKS } from "@/lib/tarot-catalog";
 
 export interface CanonicalCardRow {
   id: string;
@@ -166,7 +167,7 @@ export interface ListGrimorioOptions {
 export function listGrimorioCards(
   userId: string,
   options: ListGrimorioOptions = {},
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): GrimorioCardSummary[] {
   interface SummaryJoinRow extends CanonicalCardRow {
     ce_id: string | null;
@@ -317,7 +318,7 @@ export function listGrimorioCards(
 export function getGrimorioCardBySlug(
   userId: string,
   slug: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): GrimorioCardDetail | null {
   const cardRow = db
     .prepare("SELECT * FROM cards_catalog WHERE slug = ?")
@@ -458,7 +459,7 @@ export function getGrimorioCardBySlug(
 export function upsertPersonalCardEntry(
   userId: string,
   values: PersonalCardEntryValues,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): PersonalCardEntry {
   const cardExists = db
     .prepare("SELECT id FROM cards_catalog WHERE id = ?")
@@ -607,7 +608,69 @@ function mapDeckRow(row: DeckRow): Deck {
   };
 }
 
-export function listDecks(userId: string, db: DatabaseSync = getDb()): Deck[] {
+export function getBuiltinDecks(): Deck[] {
+  return BUILTIN_DECKS.map((b) => ({
+    id: b.id,
+    userId: null,
+    name: b.name,
+    tradition: b.tradition,
+    author: b.author,
+    cardCount: b.cardCount,
+    description: b.description,
+    isDefault: b.isDefault,
+    needsSetup: false,
+    isBuiltin: true,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    readingsCount: 0,
+  }));
+}
+
+export function listAvailableDecks(
+  userId: string,
+  db: DatabaseSync = getDb(userId)
+): Deck[] {
+  const userDecks = listDecks(userId, db);
+  const builtinDecks = getBuiltinDecks();
+
+  const userDeckIds = new Set(userDecks.map((d) => d.id));
+  const activeBuiltins = builtinDecks.filter((b) => !userDeckIds.has(b.id));
+
+  return [...activeBuiltins, ...userDecks];
+}
+
+export function ensureUserBuiltinDecks(
+  userId: string,
+  db: DatabaseSync = getDb(userId)
+): void {
+  const checkDeck = db.prepare(
+    "SELECT id FROM decks WHERE user_id = ? AND tradition = ?"
+  );
+  const insertDeck = db.prepare(`
+    INSERT INTO decks (
+      id, user_id, name, tradition, author, card_count, description, is_default, needs_setup, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+  `);
+
+  const nowIso = new Date().toISOString();
+  for (const deck of BUILTIN_DECKS) {
+    const existing = checkDeck.get(userId, deck.tradition);
+    if (!existing) {
+      insertDeck.run(
+        `deck-${deck.tradition}-${userId}`,
+        userId,
+        deck.name,
+        deck.tradition,
+        deck.author,
+        deck.cardCount,
+        deck.description,
+        deck.isDefault ? 1 : 0,
+        nowIso
+      );
+    }
+  }
+}
+
+export function listDecks(userId: string, db: DatabaseSync = getDb(userId)): Deck[] {
   const rows = db
     .prepare(
       `SELECT
@@ -634,7 +697,7 @@ export function listDecks(userId: string, db: DatabaseSync = getDb()): Deck[] {
 export function createDeck(
   userId: string,
   values: DeckFormValues,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Deck {
   const id = `deck-${randomUUID()}`;
   const nowIso = new Date().toISOString();
@@ -676,7 +739,7 @@ export function createDeck(
 export function createQuickDeck(
   userId: string,
   name: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Deck {
   const cleanName = name.trim();
   if (!cleanName) {
@@ -702,7 +765,7 @@ export function updateDeck(
   userId: string,
   deckId: string,
   values: DeckFormValues,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): Deck {
   const existing = db
     .prepare("SELECT id FROM decks WHERE user_id = ? AND id = ?")
@@ -755,7 +818,7 @@ export function updateDeck(
 export function deleteDeck(
   userId: string,
   deckId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): void {
   const res = db
     .prepare("DELETE FROM decks WHERE user_id = ? AND id = ?")
@@ -814,7 +877,7 @@ function mapSpreadRow(row: SpreadRow): SpreadTemplate {
 
 export function listSpreadTemplates(
   userId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): SpreadTemplate[] {
   const rows = db
     .prepare(
@@ -830,7 +893,7 @@ export function listSpreadTemplates(
 export function createSpreadTemplate(
   userId: string,
   values: SpreadTemplateFormValues,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): SpreadTemplate {
   const id = `spread-${randomUUID()}`;
   const nowIso = new Date().toISOString();
@@ -860,7 +923,7 @@ export function createSpreadTemplate(
 export function deleteSpreadTemplate(
   userId: string,
   spreadId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): void {
   const res = db
     .prepare(

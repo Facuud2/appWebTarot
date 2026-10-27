@@ -5,7 +5,7 @@ import { NewReadingForm } from "@/features/readings/new-reading-form";
 import { getAppointmentById } from "@/repositories/appointments-repository";
 import { listConsultants } from "@/repositories/consultants-repository";
 import {
-  listDecks,
+  listAvailableDecks,
   listSpreadTemplates,
 } from "@/repositories/grimorio-repository";
 import { requireUser } from "@/server/session";
@@ -27,7 +27,7 @@ export default async function NewReadingPage({
   const params = await searchParams;
 
   const consultants = listConsultants(user.id, { includeArchived: false });
-  const decks = listDecks(user.id);
+  const decks = listAvailableDecks(user.id);
   const classicSpreads = listSpreadTemplates(user.id).filter(
     (s) => s.isBuiltin
   );

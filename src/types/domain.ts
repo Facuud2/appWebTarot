@@ -77,11 +77,29 @@ export type ActionResult<T> =
       fieldErrors?: Record<string, string[]>;
     };
 
+export interface UserOnboardingState {
+  completed: boolean;
+  currentStep: number;
+  experienceLevel: "novice" | "intermediate" | "professional" | null;
+  usagePurposes: string[];
+  selectedDeckId: string | null;
+  customDeckCreatedId: string | null;
+  skippedAppointmentDemo: boolean;
+  createdAppointmentId: string | null;
+  skippedReadingDemo: boolean;
+  createdReadingId: string | null;
+  readingTargetType: "for_me" | "no_consultant" | "consultant" | null;
+  targetConsultantId: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+}
+
 export interface UserPreferences {
   defaultDeckId: string | null;
   defaultSpreadId: string | null;
   compactTables: boolean;
   autosaveReadings: boolean;
+  onboarding?: UserOnboardingState;
 }
 
 export interface User {
@@ -126,7 +144,7 @@ export interface Consultant {
 
 export interface Deck {
   id: string;
-  userId: string;
+  userId: string | null;
   name: string;
   tradition: DeckTradition;
   author: string | null;
@@ -134,6 +152,7 @@ export interface Deck {
   description: string;
   isDefault: boolean;
   needsSetup: boolean;
+  isBuiltin?: boolean;
   createdAt: string;
   readingsCount: number;
 }

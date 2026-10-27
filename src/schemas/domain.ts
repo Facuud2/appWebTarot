@@ -426,7 +426,7 @@ export const workspaceBackupSchema = z.object({
       ),
     })
   ),
-  appointments: z.array(
+      appointments: z.array(
     z.object({
       id: z.string(),
       consultantId: z.string(),
@@ -440,3 +440,32 @@ export const workspaceBackupSchema = z.object({
     })
   ),
 });
+
+export const onboardingExperienceLevelSchema = z.enum([
+  "novice",
+  "intermediate",
+  "professional",
+]);
+
+export const onboardingReadingTargetTypeSchema = z.enum([
+  "for_me",
+  "no_consultant",
+  "consultant",
+]);
+
+export const onboardingProgressSchema = z.object({
+  currentStep: z.number().int().min(1).max(6).optional(),
+  experienceLevel: onboardingExperienceLevelSchema.nullable().optional(),
+  usagePurposes: z.array(z.string()).optional(),
+  selectedDeckId: z.string().nullable().optional(),
+  customDeckCreatedId: z.string().nullable().optional(),
+  skippedAppointmentDemo: z.boolean().optional(),
+  createdAppointmentId: z.string().nullable().optional(),
+  skippedReadingDemo: z.boolean().optional(),
+  createdReadingId: z.string().nullable().optional(),
+  readingTargetType: onboardingReadingTargetTypeSchema.nullable().optional(),
+  targetConsultantId: z.string().nullable().optional(),
+});
+
+export type OnboardingProgressInput = z.infer<typeof onboardingProgressSchema>;
+

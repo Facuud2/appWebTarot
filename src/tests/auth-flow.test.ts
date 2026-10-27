@@ -101,4 +101,49 @@ describe("auth flow test", () => {
     const authData = (await authRes.json()) as { ok: boolean };
     expect(authData.ok).toBe(true);
   });
+
+  it("verifies demo workspace data is fully populated in memory (visual) and never stored in the persistent database", async () => {
+    const { DEMO_USER_ID, getDb } = await import("@/server/db");
+    const { listConsultants } = await import("@/repositories/consultants-repository");
+    const { listAppointments } = await import("@/repositories/appointments-repository");
+    const { listReadings, getDashboardSnapshot } = await import("@/repositories/readings-repository");
+
+    // 1. In-memory demo data is available and rich for the user to try the app
+    const consultants = listConsultants(DEMO_USER_ID);
+    expect(consultants.length).toBeGreaterThanOrEqual(3);
+    const consultantNames = consultants.map((c) => c.fullName);
+    expect(consultantNames).toContain("Mariana Echeverría");
+    expect(consultantNames).toContain("Julián Santamaría");
+
+    const appointments = listAppointments(DEMO_USER_ID);
+    expect(appointments.length).toBeGreaterThanOrEqual(3);
+
+    const readings = listReadings(DEMO_USER_ID);
+    expect(readings.length).toBeGreaterThanOrEqual(2);
+
+    const snapshot = getDashboardSnapshot(DEMO_USER_ID);
+    expect(snapshot.counts.completedReadings).toBeGreaterThanOrEqual(2);
+
+    // 2. Persistent SQLite DB on disk has ZERO demo records
+    const diskDb = getDb();
+    const demoUserInDisk = diskDb
+      .prepare("SELECT id FROM users WHERE id = ? OR is_demo = 1")
+      .get(DEMO_USER_ID);
+    expect(demoUserInDisk).toBeUndefined();
+
+    const demoConsultantsInDisk = diskDb
+      .prepare("SELECT count(*) as c FROM consultants WHERE user_id = ?")
+      .get(DEMO_USER_ID) as { c: number };
+    expect(demoConsultantsInDisk.c).toBe(0);
+
+    const demoReadingsInDisk = diskDb
+      .prepare("SELECT count(*) as c FROM readings WHERE user_id = ?")
+      .get(DEMO_USER_ID) as { c: number };
+    expect(demoReadingsInDisk.c).toBe(0);
+
+    const demoAppointmentsInDisk = diskDb
+      .prepare("SELECT count(*) as c FROM appointments WHERE user_id = ?")
+      .get(DEMO_USER_ID) as { c: number };
+    expect(demoAppointmentsInDisk.c).toBe(0);
+  });
 });

@@ -9,6 +9,7 @@ import {
 } from "@/repositories/consultants-repository";
 import {
   createQuickDeck,
+  listAvailableDecks,
   listDecks,
   mapCanonicalCardRow,
   type CanonicalCardRow,
@@ -119,7 +120,7 @@ interface ReadingSummaryRow {
 export function listReadings(
   userId: string,
   filters: ReadingSearchFilters = {},
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): ReadingSummary[] {
   const conditions: string[] = ["r.user_id = ?"];
   const params: Array<string | number> = [userId];
@@ -251,7 +252,9 @@ export function listReadings(
     )
     .all(...params) as unknown as ReadingSummaryRow[];
 
-  const userDecksMap = new Map(listDecks(userId, db).map((d) => [d.id, d]));
+  const userDecksMap = new Map(
+    listAvailableDecks(userId, db).map((d) => [d.id, d])
+  );
 
   const featuredCardsStmt = db.prepare(
     `SELECT
@@ -323,7 +326,7 @@ export function listReadings(
 export function getReadingDetail(
   userId: string,
   readingId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): ReadingDetail | null {
   interface ReadingDetailRow {
     id: string;
@@ -371,7 +374,9 @@ export function getReadingDetail(
   if (!row) return null;
 
   const deckIds = parseDeckIdsJson(row.deck_ids_json, row.deck_id);
-  const userDecksMap = new Map(listDecks(userId, db).map((d) => [d.id, d]));
+  const userDecksMap = new Map(
+    listAvailableDecks(userId, db).map((d) => [d.id, d])
+  );
   const hydratedDecks = deckIds
     .map((id) => userDecksMap.get(id))
     .filter((d): d is NonNullable<typeof d> => Boolean(d))
@@ -500,7 +505,7 @@ export function getReadingDetail(
 export function createReadingDraft(
   userId: string,
   values: CreateReadingValues,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): ReadingDetail {
   const id = `read-${randomUUID()}`;
   const nowIso = new Date().toISOString();
@@ -532,7 +537,9 @@ export function createReadingDraft(
     }
   }
 
-  const userDeckIdsSet = new Set(listDecks(userId, db).map((d) => d.id));
+  const userDeckIdsSet = new Set(
+    listAvailableDecks(userId, db).map((d) => d.id)
+  );
   const selectedExistingDeckIds = values.deckIds
     .map((d) => d.trim())
     .filter((d) => d.length > 0 && userDeckIdsSet.has(d));
@@ -644,7 +651,7 @@ export function createReadingDraft(
 export function updateReadingSession(
   userId: string,
   values: UpdateReadingSessionValues,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): ReadingDetail {
   const existing = getReadingDetail(userId, values.readingId, db);
   if (!existing) {
@@ -658,7 +665,9 @@ export function updateReadingSession(
     : parsedDate.toISOString();
 
   const consultantId = values.consultantId.trim() || null;
-  const userDeckIdsSet = new Set(listDecks(userId, db).map((d) => d.id));
+  const userDeckIdsSet = new Set(
+    listAvailableDecks(userId, db).map((d) => d.id)
+  );
   const allDeckIds = Array.from(
     new Set(
       values.deckIds
@@ -811,7 +820,7 @@ export function updateReadingSession(
 export function deleteReading(
   userId: string,
   readingId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): void {
   db.exec("BEGIN");
   try {
@@ -871,7 +880,7 @@ function hydrateCardIfPresent(
 export function listDeckEventsForReading(
   userId: string,
   readingId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): DeckEvent[] {
   const rows = db
     .prepare(
@@ -923,7 +932,7 @@ export interface ListDeckEventsFilter {
 export function listDeckEventsWithContext(
   userId: string,
   filters: ListDeckEventsFilter = {},
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): DeckEventWithContext[] {
   const conditions: string[] = ["de.user_id = ?"];
   const params: Array<string | number> = [userId];
@@ -1011,7 +1020,7 @@ export function listDeckEventsWithContext(
 export function createDeckEvent(
   userId: string,
   values: DeckEventFormValues,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): DeckEvent {
   const readingCheck = db
     .prepare("SELECT id FROM readings WHERE user_id = ? AND id = ?")
@@ -1075,7 +1084,7 @@ export function createDeckEvent(
 export function deleteDeckEvent(
   userId: string,
   eventId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): void {
   db.exec("BEGIN");
   try {
@@ -1101,7 +1110,7 @@ export function deleteDeckEvent(
 
 export function getDashboardSnapshot(
   userId: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): DashboardSnapshot {
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
@@ -1214,7 +1223,7 @@ export function getDashboardSnapshot(
 export function executeGlobalSearch(
   userId: string,
   query: string,
-  db: DatabaseSync = getDb()
+  db: DatabaseSync = getDb(userId)
 ): GlobalSearchResult {
   const q = query.trim();
   const like = `%${q}%`;

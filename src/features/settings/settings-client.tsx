@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTheme } from "next-themes";
 import { useForm, useWatch } from "react-hook-form";
-import { Download, LogOut, Monitor, Moon, Save, Sun, Upload } from "lucide-react";
+import { Compass, Download, LogOut, Monitor, Moon, Save, Sun, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { logoutAction } from "@/actions/auth-actions";
 import {
@@ -404,8 +405,41 @@ export function SettingsClient({ user, decks, spreads }: SettingsClientProps) {
         </div>
       </section>
 
+      {/* Section: Tutorial inicial */}
+      <section className="grid gap-6 py-7 lg:grid-cols-[220px_minmax(0,1fr)] border-t border-border">
+        <div className="space-y-1">
+          <h2 className="text-sm font-semibold text-ink">Tutorial de inicio</h2>
+          <p className="text-xs text-muted leading-relaxed">
+            Puedes volver a explorar el tutorial guiado de 6 pasos y ajustar tus preferencias iniciales.
+          </p>
+        </div>
+
+        <div className="min-w-0 rounded-xl border border-border bg-ground p-4 sm:p-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-0.5">
+            <p className="text-sm font-medium text-ink">
+              Recorrido interactivo de la mesa de trabajo
+            </p>
+            <p className="text-xs text-muted">
+              Repasa cómo agendar turnos, gestionar cartas en mesa y configurar tus mazos.
+            </p>
+          </div>
+
+          <Button
+            asChild
+            variant="secondary"
+            size="sm"
+            className="w-full sm:w-auto shrink-0 gap-1.5"
+          >
+            <Link href="/onboarding?repaso=1">
+              <Compass className="size-3.5" aria-hidden="true" />
+              <span>Repasar tutorial</span>
+            </Link>
+          </Button>
+        </div>
+      </section>
+
       {/* Section 5: Active Session & Account Switch (especially convenient on mobile without sidebar) */}
-      <section className="grid gap-6 py-7 lg:grid-cols-[220px_minmax(0,1fr)]">
+      <section className="grid gap-6 py-7 lg:grid-cols-[220px_minmax(0,1fr)] border-t border-border">
         <div className="space-y-1">
           <h2 className="text-sm font-semibold text-ink">Sesión activa</h2>
           <p className="text-xs text-muted leading-relaxed">

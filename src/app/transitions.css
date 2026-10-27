@@ -127,22 +127,22 @@
 @keyframes t-modal-enter {
   from {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(var(--modal-scale));
+    transform: scale(var(--modal-scale));
   }
   to {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
+    transform: scale(1);
   }
 }
 
 @keyframes t-modal-exit {
   from {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
+    transform: scale(1);
   }
   to {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(var(--modal-scale-close));
+    transform: scale(var(--modal-scale-close));
   }
 }
 
