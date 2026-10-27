@@ -6,8 +6,10 @@ import { getAppointmentById } from "@/repositories/appointments-repository";
 import { listConsultants } from "@/repositories/consultants-repository";
 import {
   listAvailableDecks,
+  listCanonicalCards,
   listSpreadTemplates,
 } from "@/repositories/grimorio-repository";
+import { listUserTags } from "@/repositories/tags-repository";
 import { BUILTIN_SPREAD_TEMPLATES } from "@/lib/tarot-catalog";
 import { requireUser } from "@/server/session";
 
@@ -29,6 +31,8 @@ export default async function NewReadingPage({
 
   const consultants = await listConsultants(user.id, { includeArchived: false });
   const decks = await listAvailableDecks(user.id);
+  const cardsCatalog = listCanonicalCards();
+  const tagSuggestions = (await listUserTags(user.id)).map((t) => t.name);
   const fetchedSpreads = (await listSpreadTemplates(user.id)).filter(
     (s) => s.isBuiltin
   );
@@ -68,29 +72,12 @@ export default async function NewReadingPage({
 
   return (
     <div className="space-y-6">
-      <div className="space-y-3">
-        <Link
-          href="/lecturas"
-          className="inline-flex items-center gap-1.5 text-xs font-medium text-muted hover:text-ink"
-        >
-          <ArrowLeft className="size-3.5" aria-hidden="true" />
-          <span>Volver a lecturas</span>
-        </Link>
-
-        <header className="space-y-1">
-          <h1 className="font-serif text-3xl text-ink">
-            Preparar mesa de lectura
-          </h1>
-          <p className="text-sm text-muted">
-            Selecciona tus mazos, la estructura de cartas y el tema de la consulta para abrir la lectura en vivo.
-          </p>
-        </header>
-      </div>
-
       <NewReadingForm
         consultants={consultants}
         decks={decks}
         spreads={classicSpreads}
+        cardsCatalog={cardsCatalog}
+        tagSuggestions={tagSuggestions}
         defaultDeckId={resolvedDefaultDeckId}
         defaultSpreadId={resolvedDefaultSpreadId}
         initialConsultantId={params.consultantId}

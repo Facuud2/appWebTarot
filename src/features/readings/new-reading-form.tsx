@@ -1,38 +1,73 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm, useWatch } from "react-hook-form";
 import {
+  ArrowLeft,
   ArrowRight,
+  Check,
+  ChevronDown,
+  ChevronUp,
   Layers,
   Minus,
   Plus,
   RotateCcw,
   Sparkles,
+  Trash2,
   X,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
-import { createReadingDraftAction } from "@/actions/reading-actions";
+import {
+  createReadingDraftAction,
+  recordDeckEventAction,
+  saveReadingSessionAction,
+} from "@/actions/reading-actions";
 import { SpreadMap, buildSpreadSlots } from "@/components/shared/spread-map";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CardCombobox } from "@/components/ui/card-combobox";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DateTimePicker } from "@/components/ui/datetime-picker";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TagInput } from "@/components/ui/tag-input";
 import { Textarea } from "@/components/ui/textarea";
-import { DECK_TRADITION_LABELS } from "@/lib/constants";
-import { cn, toDatetimeLocalValue } from "@/lib/utils";
 import {
-  createReadingSchema,
-  type CreateReadingValues,
-} from "@/schemas/domain";
+  DECK_PHASE_LABELS,
+  DECK_TRADITION_LABELS,
+  PHENOMENON_LABELS,
+} from "@/lib/constants";
+import { cn, toDatetimeLocalValue } from "@/lib/utils";
+import type { ReadingCardInput } from "@/schemas/domain";
 import type {
   Appointment,
+  CanonicalCard,
+  CardOrientation,
   Consultant,
   Deck,
+  DeckPhase,
+  DeckTradition,
+  PhenomenonType,
   SpreadPositionDefinition,
   SpreadTemplate,
 } from "@/types/domain";
@@ -41,6 +76,8 @@ interface NewReadingFormProps {
   consultants: Consultant[];
   decks: Deck[];
   spreads: SpreadTemplate[];
+  cardsCatalog: CanonicalCard[];
+  tagSuggestions?: string[];
   defaultDeckId: string;
   defaultSpreadId: string;
   initialConsultantId?: string;
@@ -73,10 +110,64 @@ const DEFAULT_CUSTOM_POSITIONS: SpreadPositionDefinition[] = [
   },
 ];
 
+interface LocalDeckEvent {
+  localId: string;
+  positionIndex: number;
+  cardId: string;
+  occurredPhase: DeckPhase;
+  phenomenonType: PhenomenonType;
+  customPhenomenonLabel: string;
+  observationDescription: string;
+  personalInterpretation: string;
+  occurredAt: string;
+  tags: string[];
+}
+
+interface CardSlotData {
+  positionIndex: number;
+  positionTitle: string;
+  positionPrompt: string;
+  cardId: string;
+  orientation: CardOrientation;
+  observationNotes: string;
+  contextualInterpretation: string;
+  personalTakeaway: string;
+  syncToGrimorio: boolean;
+  coordX: number;
+  coordY: number;
+}
+
+const PHENOMENON_OPTIONS: Array<{
+  type: PhenomenonType;
+  label: string;
+  icon: string;
+  hint: string;
+}> = [
+  { type: "jumped", label: "Saltó al mezclar", icon: "⚡", hint: "Salió despedida" },
+  { type: "fell_to_floor", label: "Cayó fuera", icon: "⤵️", hint: "Al suelo o mesa" },
+  { type: "base_card", label: "Base del mazo", icon: "🎴", hint: "Carta inferior" },
+  { type: "cut_reveal", label: "En el corte", icon: "✂️", hint: "Al partir el mazo" },
+  { type: "spontaneous_turn", label: "Se dio vuelta", icon: "🔄", hint: "Invertida sola" },
+  { type: "partially_hidden", label: "Quedó tapada", icon: "📑", hint: "Oculta bajo otra" },
+  { type: "out_of_order", label: "Fuera de orden", icon: "↔️", hint: "Secuencia rota" },
+  { type: "other", label: "Otra situación", icon: "✨", hint: "Personalizada" },
+];
+
+const PHASE_OPTIONS: Array<{ phase: DeckPhase; label: string }> = [
+  { phase: "shuffling", label: "Mezclando" },
+  { phase: "cutting", label: "Cortando" },
+  { phase: "dealing", label: "Repartiendo" },
+  { phase: "base_of_deck", label: "Base del mazo" },
+  { phase: "closing", label: "Cierre" },
+  { phase: "other", label: "Otra fase" },
+];
+
 export function NewReadingForm({
   consultants,
   decks,
   spreads,
+  cardsCatalog,
+  tagSuggestions = [],
   defaultDeckId,
   defaultSpreadId,
   initialConsultantId = "",
@@ -86,188 +177,183 @@ export function NewReadingForm({
 }: NewReadingFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = React.useTransition();
-  const [activeCustomIndex, setActiveCustomIndex] = React.useState<number | null>(null);
+
+  // Wizard Step: 1 = Configuración, 2 = Cartas y Notas, 3 = Acomodar Mesa
+  const [currentStep, setCurrentStep] = React.useState<1 | 2 | 3>(1);
+
+  // Cancel Confirmation Modal State
+  const [isCancelDialogOpen, setIsCancelDialogOpen] = React.useState(false);
+
+  // Step 1 State: Decks, Question, Notes, Consultant, Spread
+  const [selectedDeckIds, setSelectedDeckIds] = React.useState<string[]>(
+    defaultDeckId ? [defaultDeckId] : decks[0] ? [decks[0].id] : []
+  );
+  const [quickNewDecks, setQuickNewDecks] = React.useState<string[]>([]);
   const [registerNewDeckChecked, setRegisterNewDeckChecked] =
     React.useState(false);
   const [pendingDeckName, setPendingDeckName] = React.useState("");
+
+  const resolvedInitialConsultant =
+    initialAppointment?.consultantId || initialConsultantId;
+  const [consultantId, setConsultantId] = React.useState(
+    resolvedInitialConsultant
+  );
   const [isRegisteringNewConsultant, setIsRegisteringNewConsultant] =
     React.useState(false);
   const [quickConsultantName, setQuickConsultantName] = React.useState("");
 
-  const resolvedInitialConsultant =
-    initialAppointment?.consultantId || initialConsultantId;
   const resolvedInitialIntention =
     initialIntention ||
     initialAppointment?.intention ||
     initialAppointment?.title ||
     "";
-  const resolvedInitialTitle = initialAppointment?.title || "";
+  const [questionIntention, setQuestionIntention] = React.useState(
+    resolvedInitialIntention
+  );
+  const [sessionContext, setSessionContext] = React.useState(
+    initialAppointment?.prepNotes ?? ""
+  );
+  const [performedAt, setPerformedAt] = React.useState(
+    toDatetimeLocalValue(initialNowIso ?? new Date().toISOString())
+  );
 
   const initialClassicSpread =
     spreads.find((s) => s.id === defaultSpreadId) ?? spreads[0] ?? null;
-
-  const form = useForm<CreateReadingValues>({
-    resolver: zodResolver(createReadingSchema),
-    defaultValues: {
-      title: resolvedInitialTitle,
-      consultantId: resolvedInitialConsultant,
-      appointmentId: initialAppointment?.id ?? "",
-      deckIds: defaultDeckId ? [defaultDeckId] : [],
-      quickNewDecks: [],
-      quickNewConsultant: "",
-      spreadMode: initialClassicSpread ? "classic" : "custom",
-      spreadTemplateId: initialClassicSpread?.id ?? "",
-      spreadName: initialClassicSpread?.name ?? "Estructura personalizada",
-      customPositions: DEFAULT_CUSTOM_POSITIONS,
-      questionIntention: resolvedInitialIntention,
-      sessionContext: initialAppointment?.prepNotes ?? "",
-      performedAt: toDatetimeLocalValue(
-        initialNowIso ?? "2026-10-25T12:00:00.000Z"
-      ),
-    },
-  });
-
-  const watchedConsultantId = useWatch({
-    control: form.control,
-    name: "consultantId",
-  });
-  const watchedDeckIds = useWatch({
-    control: form.control,
-    name: "deckIds",
-  });
-  const watchedQuickNewDecks = useWatch({
-    control: form.control,
-    name: "quickNewDecks",
-  });
-  const watchedSpreadMode = useWatch({
-    control: form.control,
-    name: "spreadMode",
-  });
-  const watchedSpreadId = useWatch({
-    control: form.control,
-    name: "spreadTemplateId",
-  });
-  const watchedCustomPositions = useWatch({
-    control: form.control,
-    name: "customPositions",
-  });
-  const watchedPerformedAt = useWatch({
-    control: form.control,
-    name: "performedAt",
-  });
-
-  const selectedSpread = React.useMemo(
-    () =>
-      watchedSpreadMode === "classic"
-        ? (spreads.find((s) => s.id === watchedSpreadId) ?? null)
-        : null,
-    [spreads, watchedSpreadMode, watchedSpreadId]
+  const [spreadMode, setSpreadMode] = React.useState<"classic" | "custom">(
+    initialClassicSpread ? "classic" : "custom"
+  );
+  const [spreadTemplateId, setSpreadTemplateId] = React.useState(
+    initialClassicSpread?.id ?? ""
+  );
+  const [spreadName, setSpreadName] = React.useState(
+    initialClassicSpread?.name ?? "Estructura personalizada"
   );
 
-  const previewSlots = React.useMemo(() => {
-    if (watchedSpreadMode === "custom") {
-      return buildSpreadSlots(
-        watchedCustomPositions,
-        watchedCustomPositions.map((pos) => ({
-          positionIndex: pos.positionIndex,
-          positionTitle: pos.title,
-          card: null,
-          orientation: "upright" as const,
-          coordX: pos.coordX,
-          coordY: pos.coordY,
-        })),
-        new Set()
-      );
-    }
-    if (selectedSpread?.positions && selectedSpread.positions.length > 0) {
-      return buildSpreadSlots(selectedSpread.positions, [], new Set());
-    }
-    return buildSpreadSlots(DEFAULT_CUSTOM_POSITIONS, [], new Set());
-  }, [watchedSpreadMode, watchedCustomPositions, selectedSpread]);
+  // Custom Spread Positions defined in Step 1
+  const [customPositions, setCustomPositions] = React.useState<
+    SpreadPositionDefinition[]
+  >(DEFAULT_CUSTOM_POSITIONS);
 
+  // Step 2 & 3 State: Card Slots Data & Local Events
+  const [cardSlots, setCardSlots] = React.useState<CardSlotData[]>([]);
+  const [expandedNotesIndex, setExpandedNotesIndex] = React.useState<
+    number | null
+  >(null);
+  const [activeBoardIndex, setActiveBoardIndex] = React.useState<number | null>(
+    null
+  );
+
+  // Deck Events state (recorded in step 2)
+  const [localDeckEvents, setLocalDeckEvents] = React.useState<
+    LocalDeckEvent[]
+  >([]);
+  const [eventModalSlotIndex, setEventModalSlotIndex] = React.useState<
+    number | null
+  >(null);
+  const [modalPhenomenon, setModalPhenomenon] =
+    React.useState<PhenomenonType>("jumped");
+  const [modalPhase, setModalPhase] = React.useState<DeckPhase>("shuffling");
+  const [modalDescription, setModalDescription] = React.useState("");
+  const [modalInterpretation, setModalInterpretation] = React.useState("");
+  const [modalTags, setModalTags] = React.useState<string[]>([]);
+
+  // Step 3 Synthesis & Tags
+  const [sessionTitle, setSessionTitle] = React.useState(
+    initialAppointment?.title || ""
+  );
+  const [generalObservations, setGeneralObservations] = React.useState("");
+  const [sessionSynthesis, setSessionSynthesis] = React.useState("");
+  const [readingTags, setReadingTags] = React.useState<string[]>([]);
+
+  // Selected Spread from classic spreads
+  const selectedClassicSpread = React.useMemo(
+    () =>
+      spreadMode === "classic"
+        ? (spreads.find((s) => s.id === spreadTemplateId) ?? spreads[0] ?? null)
+        : null,
+    [spreads, spreadMode, spreadTemplateId]
+  );
+
+  // Compute strictly filtered cards based on chosen decks' traditions
+  const availableFilteredCards = React.useMemo(() => {
+    // 1. Gather all selected decks (including quick decks)
+    const activeDecks = decks.filter((d) => selectedDeckIds.includes(d.id));
+
+    // 2. Identify the traditions of the selected decks
+    const selectedTraditions = new Set<DeckTradition>(
+      activeDecks.map((d) => d.tradition)
+    );
+
+    // If user registered a quick new deck, allow 'rws' tradition if none specified
+    if (quickNewDecks.length > 0 && selectedTraditions.size === 0) {
+      selectedTraditions.add("rws");
+    }
+
+    if (selectedTraditions.size === 0) {
+      // Default fallback
+      return cardsCatalog.filter((c) => c.deckTradition === "rws");
+    }
+
+    const matching = cardsCatalog.filter((c) =>
+      selectedTraditions.has(c.deckTradition as DeckTradition)
+    );
+
+    return matching.length > 0 ? matching : cardsCatalog;
+  }, [cardsCatalog, decks, selectedDeckIds, quickNewDecks]);
+
+  // Deck traditions labels summary
+  const selectedDeckTraditionsLabel = React.useMemo(() => {
+    const activeDecks = decks.filter((d) => selectedDeckIds.includes(d.id));
+    const trads = Array.from(new Set(activeDecks.map((d) => d.tradition)));
+    if (trads.length === 0) return "Rider-Waite-Smith";
+    return trads.map((t) => DECK_TRADITION_LABELS[t] || t).join(", ");
+  }, [decks, selectedDeckIds]);
+
+  // Deck toggle in Step 1
   const toggleDeckSelection = (deckId: string, checked: boolean) => {
-    const current = form.getValues("deckIds");
-    const next = checked
-      ? Array.from(new Set([...current, deckId]))
-      : current.filter((id) => id !== deckId);
-    form.setValue("deckIds", next, { shouldDirty: true });
+    setSelectedDeckIds((prev) =>
+      checked
+        ? Array.from(new Set([...prev, deckId]))
+        : prev.filter((id) => id !== deckId)
+    );
   };
 
+  // Quick deck add / remove
   const addQuickDeckName = () => {
     const clean = pendingDeckName.trim();
     if (!clean) return;
-    const current = form.getValues("quickNewDecks");
     if (
-      current.some((d) => d.toLowerCase() === clean.toLowerCase()) ||
+      quickNewDecks.some((d) => d.toLowerCase() === clean.toLowerCase()) ||
       decks.some((d) => d.name.toLowerCase() === clean.toLowerCase())
     ) {
       toast.error("Ese nombre de mazo ya está en la lista.");
       return;
     }
-    if (current.length >= 5) {
+    if (quickNewDecks.length >= 5) {
       toast.error("Puedes registrar hasta 5 mazos nuevos por lectura.");
       return;
     }
-    form.setValue("quickNewDecks", [...current, clean], { shouldDirty: true });
+    setQuickNewDecks((prev) => [...prev, clean]);
     setPendingDeckName("");
   };
 
   const removeQuickDeckName = (nameToRemove: string) => {
-    const current = form.getValues("quickNewDecks");
-    form.setValue(
-      "quickNewDecks",
-      current.filter((n) => n !== nameToRemove),
-      { shouldDirty: true }
-    );
+    setQuickNewDecks((prev) => prev.filter((n) => n !== nameToRemove));
   };
 
-  const handleStructureChange = (val: string) => {
-    if (val === "custom") {
-      form.setValue("spreadMode", "custom", { shouldDirty: true });
-      form.setValue("spreadTemplateId", "", { shouldDirty: true });
-      form.setValue("spreadName", "Estructura personalizada", {
-        shouldDirty: true,
-      });
-      if (form.getValues("customPositions").length === 0) {
-        form.setValue("customPositions", DEFAULT_CUSTOM_POSITIONS, {
-          shouldDirty: true,
-        });
-      }
-    } else {
-      form.setValue("spreadMode", "classic", { shouldDirty: true });
-      form.setValue("spreadTemplateId", val, { shouldDirty: true });
-      const found = spreads.find((s) => s.id === val);
-      if (found) {
-        form.setValue("spreadName", found.name, { shouldDirty: true });
-      }
-    }
-  };
-
-  const handleMoveCustomPosition = (
-    positionIndex: number,
-    coordX: number,
-    coordY: number
-  ) => {
-    const current = form.getValues("customPositions");
-    const updated = current.map((p) =>
-      p.positionIndex === positionIndex ? { ...p, coordX, coordY } : p
-    );
-    form.setValue("customPositions", updated, { shouldDirty: true });
-  };
-
+  // Custom Spread: Position management
   const addCustomPosition = () => {
-    const current = form.getValues("customPositions");
-    if (current.length >= 10) {
-      toast.error("El tapete admite un máximo de 10 cartas.");
+    if (customPositions.length >= 12) {
+      toast.error("La estructura admite un máximo de 12 cartas.");
       return;
     }
-    const nextIdx = current.length + 1;
+    const nextIdx = customPositions.length + 1;
     const newPositions = [
-      ...current,
+      ...customPositions,
       {
         positionIndex: nextIdx,
-        title: `Carta ${nextIdx}`,
-        prompt: "Significado o propósito de esta posición",
+        title: "", // Empty so placeholder "Carta X" applies automatically if left empty
+        prompt: "",
         coordX: 50,
         coordY: 50,
       },
@@ -277,17 +363,17 @@ export function NewReadingForm({
       positionIndex: idx + 1,
       coordX: Math.round(15 + (idx / Math.max(1, newPositions.length - 1)) * 70),
     }));
-    form.setValue("customPositions", redistributed, { shouldDirty: true });
-    setActiveCustomIndex(nextIdx);
+    setCustomPositions(redistributed);
   };
 
   const removeCustomPosition = (indexToRemove: number) => {
-    const current = form.getValues("customPositions");
-    if (current.length <= 1) {
+    if (customPositions.length <= 1) {
       toast.error("La estructura debe tener al menos una posición.");
       return;
     }
-    const filtered = current.filter((p) => p.positionIndex !== indexToRemove);
+    const filtered = customPositions.filter(
+      (p) => p.positionIndex !== indexToRemove
+    );
     const reindexed = filtered.map((pos, idx) => ({
       ...pos,
       positionIndex: idx + 1,
@@ -296,585 +382,1512 @@ export function NewReadingForm({
           ? 50
           : Math.round(15 + (idx / (filtered.length - 1)) * 70),
     }));
-    form.setValue("customPositions", reindexed, { shouldDirty: true });
-    if (activeCustomIndex === indexToRemove) {
-      setActiveCustomIndex(null);
-    }
+    setCustomPositions(reindexed);
   };
 
-  const updateCustomPositionTitle = (positionIndex: number, title: string) => {
-    const current = form.getValues("customPositions");
-    const updated = current.map((p) =>
-      p.positionIndex === positionIndex ? { ...p, title } : p
+  const updateCustomPositionField = (
+    positionIndex: number,
+    field: "title" | "prompt",
+    value: string
+  ) => {
+    setCustomPositions((prev) =>
+      prev.map((p) =>
+        p.positionIndex === positionIndex ? { ...p, [field]: value } : p
+      )
     );
-    form.setValue("customPositions", updated, { shouldDirty: true });
-  };
-
-  const updateCustomPositionPrompt = (positionIndex: number, prompt: string) => {
-    const current = form.getValues("customPositions");
-    const updated = current.map((p) =>
-      p.positionIndex === positionIndex ? { ...p, prompt } : p
-    );
-    form.setValue("customPositions", updated, { shouldDirty: true });
   };
 
   const resetCustomPositions = () => {
-    form.setValue("customPositions", DEFAULT_CUSTOM_POSITIONS, {
-      shouldDirty: true,
-    });
-    setActiveCustomIndex(null);
+    setCustomPositions(DEFAULT_CUSTOM_POSITIONS);
   };
 
-  const onSubmit = form.handleSubmit((values) => {
-    const inlineConsultant = quickConsultantName.trim();
-    if (isRegisteringNewConsultant && inlineConsultant.length === 0) {
+  // Navigation handlers
+  const handleNextStep1 = () => {
+    if (selectedDeckIds.length === 0 && quickNewDecks.length === 0) {
+      toast.error("Por favor selecciona o añade al menos un mazo.");
+      return;
+    }
+
+    if (
+      isRegisteringNewConsultant &&
+      quickConsultantName.trim().length === 0
+    ) {
       toast.error("Por favor ingresa el nombre o alias del nuevo consultante.");
       return;
     }
 
-    const mergedQuickDecks = [...values.quickNewDecks];
-    const inlineDraftName = pendingDeckName.trim();
-    if (registerNewDeckChecked && inlineDraftName.length > 0) {
-      const alreadyQueued = mergedQuickDecks.some(
-        (d) => d.toLowerCase() === inlineDraftName.toLowerCase()
-      );
-      if (!alreadyQueued) {
-        mergedQuickDecks.push(inlineDraftName);
-      }
+    // Resolve positions from chosen spread
+    let basePositions: SpreadPositionDefinition[] = [];
+    if (spreadMode === "custom") {
+      // If left blank, automatically name "Carta 1", "Carta 2", etc.
+      basePositions = customPositions.map((p, idx) => ({
+        ...p,
+        positionIndex: idx + 1,
+        title: p.title.trim() || `Carta ${idx + 1}`,
+        prompt: p.prompt.trim(),
+      }));
+      setCustomPositions(basePositions);
+    } else if (selectedClassicSpread) {
+      basePositions = selectedClassicSpread.positions;
+    } else {
+      basePositions = DEFAULT_CUSTOM_POSITIONS;
     }
 
-    startTransition(async () => {
-      const res = await createReadingDraftAction({
-        ...values,
-        quickNewConsultant: isRegisteringNewConsultant ? inlineConsultant : undefined,
-        quickNewDecks: mergedQuickDecks,
+    // Sync or build cardSlots preserving previously entered cards if user goes back & forth
+    setCardSlots((prevSlots) => {
+      return basePositions.map((pos) => {
+        const existing = prevSlots.find(
+          (s) => s.positionIndex === pos.positionIndex
+        );
+        return {
+          positionIndex: pos.positionIndex,
+          positionTitle: pos.title,
+          positionPrompt: pos.prompt,
+          cardId: existing?.cardId ?? "",
+          orientation: existing?.orientation ?? "upright",
+          observationNotes: existing?.observationNotes ?? "",
+          contextualInterpretation: existing?.contextualInterpretation ?? "",
+          personalTakeaway: existing?.personalTakeaway ?? "",
+          syncToGrimorio: existing?.syncToGrimorio ?? false,
+          coordX: existing?.coordX ?? pos.coordX,
+          coordY: existing?.coordY ?? pos.coordY,
+        };
       });
-      if (!res.ok) {
-        toast.error(res.error);
-        return;
-      }
-      if (isRegisteringNewConsultant && mergedQuickDecks.length > 0) {
-        toast.success(
-          "Mesa abierta, consultante y mazo guardados. Verás recordatorios en Inicio para completar sus datos."
-        );
-      } else if (isRegisteringNewConsultant) {
-        toast.success(
-          "Mesa de lectura abierta y consultante creado. Verás un recordatorio en Inicio para completar su información."
-        );
-      } else if (mergedQuickDecks.length > 0) {
-        toast.success(
-          "Mesa abierta y mazo guardado. Verás un recordatorio en Inicio para completar sus datos."
-        );
-      } else {
-        toast.success(res.message ?? "Mesa de lectura abierta.");
-      }
-      router.push(`/lecturas/${res.data.id}`);
-      router.refresh();
     });
-  });
 
-  const selectStructureValue =
-    watchedSpreadMode === "custom"
-      ? "custom"
-      : spreads.some((s) => s.id === watchedSpreadId)
-        ? watchedSpreadId
-        : (spreads[0]?.id ?? "custom");
+    setCurrentStep(2);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleNextStep2 = () => {
+    // Advance to Step 3: spatial accommodation & completion
+    setCurrentStep(3);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleBackToStep1 = () => {
+    setCurrentStep(1);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleBackToStep2 = () => {
+    setCurrentStep(2);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  // Card slot updater for Step 2
+  const updateCardSlot = (
+    index: number,
+    patch: Partial<CardSlotData>
+  ) => {
+    setCardSlots((prev) =>
+      prev.map((slot) =>
+        slot.positionIndex === index ? { ...slot, ...patch } : slot
+      )
+    );
+  };
+
+  // Deck event management for Step 2
+  const openDeckEventModal = (positionIndex: number) => {
+    const slot = cardSlots.find((s) => s.positionIndex === positionIndex);
+    setEventModalSlotIndex(positionIndex);
+    setModalPhenomenon("jumped");
+    setModalPhase("shuffling");
+    setModalDescription("");
+    setModalInterpretation("");
+    setModalTags([]);
+  };
+
+  const saveDeckEvent = () => {
+    if (!eventModalSlotIndex) return;
+    const cleanDesc = modalDescription.trim();
+    if (!cleanDesc) {
+      toast.error("Por favor describe brevemente qué ocurrió con el mazo.");
+      return;
+    }
+    const slot = cardSlots.find((s) => s.positionIndex === eventModalSlotIndex);
+    const newEvent: LocalDeckEvent = {
+      localId: `local-ev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      positionIndex: eventModalSlotIndex,
+      cardId: slot?.cardId || "",
+      occurredPhase: modalPhase,
+      phenomenonType: modalPhenomenon,
+      customPhenomenonLabel: "",
+      observationDescription: cleanDesc,
+      personalInterpretation: modalInterpretation.trim(),
+      occurredAt: new Date().toISOString(),
+      tags: modalTags,
+    };
+    setLocalDeckEvents((prev) => [...prev, newEvent]);
+    setEventModalSlotIndex(null);
+    toast.success("Evento de mazo registrado.");
+  };
+
+  const removeDeckEvent = (localId: string) => {
+    setLocalDeckEvents((prev) => prev.filter((ev) => ev.localId !== localId));
+    toast.info("Evento removido.");
+  };
+
+  // Step 3 Move Card on Board
+  const handleMoveBoardCard = (
+    positionIndex: number,
+    coordX: number,
+    coordY: number
+  ) => {
+    setCardSlots((prev) =>
+      prev.map((s) =>
+        s.positionIndex === positionIndex ? { ...s, coordX, coordY } : s
+      )
+    );
+  };
+
+  // Quick distribution helpers for Step 3
+  const distributeHorizontal = () => {
+    const total = cardSlots.length;
+    if (total <= 1) return;
+    setCardSlots((prev) =>
+      prev.map((slot, idx) => ({
+        ...slot,
+        coordX: Math.round(15 + (idx / (total - 1)) * 70),
+        coordY: 50,
+      }))
+    );
+    toast.info("Cartas alineadas horizontalmente.");
+  };
+
+  const resetToTemplatePositions = () => {
+    const base =
+      spreadMode === "custom"
+        ? customPositions
+        : (selectedClassicSpread?.positions ?? DEFAULT_CUSTOM_POSITIONS);
+
+    setCardSlots((prev) =>
+      prev.map((slot) => {
+        const found = base.find((p) => p.positionIndex === slot.positionIndex);
+        return {
+          ...slot,
+          coordX: found?.coordX ?? 50,
+          coordY: found?.coordY ?? 50,
+        };
+      })
+    );
+    toast.info("Posiciones restablecidas a la plantilla.");
+  };
+
+  // Step 3 Build preview slots for SpreadMap
+  const cardByIdMap = React.useMemo(() => {
+    return new Map(cardsCatalog.map((c) => [c.id, c]));
+  }, [cardsCatalog]);
+
+  const eventPositionIndices = React.useMemo(() => {
+    return new Set(localDeckEvents.map((e) => e.positionIndex));
+  }, [localDeckEvents]);
+
+  const step3MapSlots = React.useMemo(() => {
+    return cardSlots.map((slot) => ({
+      positionIndex: slot.positionIndex,
+      positionTitle: slot.positionTitle,
+      card: slot.cardId ? (cardByIdMap.get(slot.cardId) ?? null) : null,
+      orientation: slot.orientation,
+      coordX: slot.coordX,
+      coordY: slot.coordY,
+      hasEvent: eventPositionIndices.has(slot.positionIndex),
+    }));
+  }, [cardSlots, cardByIdMap, eventPositionIndices]);
+
+  // Final Submit: Save & Complete Reading
+  const handleCompleteAndSave = () => {
+    startTransition(async () => {
+      try {
+        const mergedQuickDecks = [...quickNewDecks];
+        const inlineDraftName = pendingDeckName.trim();
+        if (registerNewDeckChecked && inlineDraftName.length > 0) {
+          if (!mergedQuickDecks.some((d) => d.toLowerCase() === inlineDraftName.toLowerCase())) {
+            mergedQuickDecks.push(inlineDraftName);
+          }
+        }
+
+        const resolvedTitle =
+          sessionTitle.trim() ||
+          (questionIntention.trim()
+            ? questionIntention.trim().slice(0, 72)
+            : `Sesión de lectura · ${new Date().toISOString().slice(0, 10)}`);
+
+        // 1. Create reading draft
+        const draftRes = await createReadingDraftAction({
+          title: resolvedTitle,
+          consultantId: isRegisteringNewConsultant
+            ? "__new__"
+            : consultantId || "",
+          appointmentId: initialAppointment?.id ?? "",
+          deckIds: selectedDeckIds,
+          quickNewDecks: mergedQuickDecks,
+          quickNewConsultant: isRegisteringNewConsultant
+            ? quickConsultantName.trim()
+            : undefined,
+          spreadMode,
+          spreadTemplateId: spreadMode === "classic" ? spreadTemplateId : "",
+          spreadName:
+            spreadMode === "custom"
+              ? spreadName.trim() || `Personalizada (${cardSlots.length} cartas)`
+              : (selectedClassicSpread?.name ?? spreadName),
+          customPositions: cardSlots.map((s) => ({
+            positionIndex: s.positionIndex,
+            title: s.positionTitle.trim() || `Carta ${s.positionIndex}`,
+            prompt: s.positionPrompt.trim(),
+            coordX: s.coordX,
+            coordY: s.coordY,
+          })),
+          questionIntention: questionIntention.trim(),
+          sessionContext: sessionContext.trim(),
+          performedAt,
+        });
+
+        if (!draftRes.ok) {
+          toast.error(draftRes.error);
+          return;
+        }
+
+        if (!draftRes.data) {
+          toast.error("No se pudo iniciar la lectura.");
+          return;
+        }
+
+        const readingId = draftRes.data.id;
+
+        // 2. Record all physical deck events
+        for (const ev of localDeckEvents) {
+          await recordDeckEventAction({
+            readingId,
+            cardId: ev.cardId,
+            occurredPhase: ev.occurredPhase,
+            phenomenonType: ev.phenomenonType,
+            customPhenomenonLabel: ev.customPhenomenonLabel,
+            linkedPositionIndex: ev.positionIndex,
+            observationDescription: ev.observationDescription,
+            personalInterpretation: ev.personalInterpretation,
+            occurredAt: ev.occurredAt,
+            tags: ev.tags,
+          });
+        }
+
+        // 3. Save full reading session with cards & status: "completed"
+        const formattedCards: ReadingCardInput[] = cardSlots
+          .filter((slot) => slot.cardId && slot.cardId.trim().length > 0)
+          .map((slot) => ({
+            positionIndex: slot.positionIndex,
+            positionTitle: slot.positionTitle.trim() || `Carta ${slot.positionIndex}`,
+            positionPrompt: slot.positionPrompt.trim(),
+            cardId: slot.cardId,
+            orientation: slot.orientation,
+            observationNotes: slot.observationNotes.trim(),
+            contextualInterpretation: slot.contextualInterpretation.trim(),
+            personalTakeaway: slot.personalTakeaway.trim(),
+            syncToGrimorio: slot.syncToGrimorio,
+          }));
+
+        const saveRes = await saveReadingSessionAction({
+          readingId,
+          title: resolvedTitle,
+          consultantId: draftRes.data.consultantId ?? "",
+          deckIds: draftRes.data.deckIds,
+          spreadTemplateId: spreadMode === "classic" ? spreadTemplateId : "",
+          spreadName:
+            spreadMode === "custom"
+              ? spreadName.trim() || `Personalizada (${cardSlots.length} cartas)`
+              : (selectedClassicSpread?.name ?? spreadName),
+          customPositions: cardSlots.map((s) => ({
+            positionIndex: s.positionIndex,
+            title: s.positionTitle.trim() || `Carta ${s.positionIndex}`,
+            prompt: s.positionPrompt.trim(),
+            coordX: s.coordX,
+            coordY: s.coordY,
+          })),
+          questionIntention: questionIntention.trim(),
+          sessionContext: sessionContext.trim(),
+          status: "completed",
+          performedAt,
+          generalObservations: generalObservations.trim(),
+          sessionSynthesis: sessionSynthesis.trim(),
+          closingReflections: "",
+          tags: readingTags,
+          cards: formattedCards,
+        });
+
+        if (!saveRes.ok) {
+          toast.error(saveRes.error || "Se creó el borrador pero falló el guardado final.");
+          router.push(`/lecturas/${readingId}`);
+          return;
+        }
+
+        toast.success("¡Lectura completada y guardada con éxito!");
+        router.push(`/lecturas/${readingId}`);
+        router.refresh();
+      } catch (err) {
+        console.error(err);
+        toast.error("Ocurrió un error inesperado al guardar la lectura.");
+      }
+    });
+  };
+
+  // Cancel Confirmation Handler
+  const handleConfirmCancel = () => {
+    setIsCancelDialogOpen(false);
+    toast.info("Lectura cancelada.");
+    router.push("/lecturas");
+  };
 
   return (
-    <form
-      onSubmit={onSubmit}
-      className="grid grid-cols-1 gap-6 lg:grid-cols-12 items-start"
-    >
-      <div className="min-w-0 lg:col-span-7 space-y-6 rounded-xl border border-border bg-surface p-4 sm:p-6">
-        {initialAppointment ? (
-          <div className="rounded-lg border border-border bg-ground p-3.5 flex flex-wrap items-center justify-between gap-2">
-            <div className="min-w-0 space-y-0.5">
-              <p className="break-words text-xs font-medium text-ink">
-                Vinculada a cita: {initialAppointment.title}
-              </p>
-              <p className="text-xs text-muted">
-                Al completar la lectura, el estado de la cita pasará automáticamente a Realizada.
-              </p>
-            </div>
-            <Badge variant="positive">Cita conectada</Badge>
-          </div>
-        ) : null}
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <div className="flex items-baseline justify-between gap-2">
-              <Label htmlFor="reading-consultant">Consultante</Label>
-              {!isRegisteringNewConsultant ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsRegisteringNewConsultant(true);
-                    form.setValue("consultantId", "__new__", { shouldValidate: true });
-                  }}
-                  className="text-xs text-accent hover:underline inline-flex items-center gap-1"
-                >
-                  <Plus className="size-3" aria-hidden="true" />
-                  <span>Nuevo consultante</span>
-                </button>
-              ) : null}
-            </div>
-            <select
-              id="reading-consultant"
-              className="flex h-11 sm:h-10 w-full rounded-lg border border-control bg-raised px-3 text-sm text-ink transition-colors focus-visible:border-ink"
-              value={isRegisteringNewConsultant ? "__new__" : (watchedConsultantId || "")}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val === "__new__") {
-                  setIsRegisteringNewConsultant(true);
-                  form.setValue("consultantId", "__new__", { shouldValidate: true });
-                } else {
-                  setIsRegisteringNewConsultant(false);
-                  setQuickConsultantName("");
-                  form.setValue("consultantId", val, { shouldValidate: true });
-                }
-              }}
-            >
-              <option value="">Lectura personal / Sin consultante</option>
-              {consultants.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.displayName}
-                  {c.alias && c.alias !== c.fullName ? ` (${c.fullName})` : ""}
-                </option>
-              ))}
-              <option value="__new__">+ Registrar nuevo consultante…</option>
-            </select>
-
-            {isRegisteringNewConsultant ? (
-              <div className="mt-2 space-y-2 rounded-lg border border-accent/40 bg-accent/5 p-3 animate-in fade-in duration-200">
-                <div className="flex items-center justify-between gap-2">
-                  <Label
-                    htmlFor="quick-new-consultant-name"
-                    className="text-xs font-medium text-accent"
-                  >
-                    Nombre o alias del nuevo consultante
-                  </Label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsRegisteringNewConsultant(false);
-                      setQuickConsultantName("");
-                      form.setValue("consultantId", "");
-                    }}
-                    className="text-xs text-muted hover:text-ink inline-flex items-center gap-1"
-                  >
-                    <X className="size-3" aria-hidden="true" />
-                    <span>Cancelar</span>
-                  </button>
-                </div>
-                <Input
-                  id="quick-new-consultant-name"
-                  aria-label="Nombre o alias del nuevo consultante"
-                  value={quickConsultantName}
-                  onChange={(e) => setQuickConsultantName(e.target.value)}
-                  placeholder="Escribe el nombre o alias (ej. Sofía Méndez o Viajera del Sur)…"
-                  autoFocus
-                />
-                <p className="text-xs text-muted">
-                  Se creará su ficha al iniciar la lectura y verás un recordatorio en Inicio para completar sus datos luego.
-                </p>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="reading-performed-at">Fecha y hora</Label>
-            <DateTimePicker
-              id="reading-performed-at"
-              value={watchedPerformedAt}
-              onChange={(val) =>
-                form.setValue("performedAt", val, { shouldValidate: true })
-              }
-            />
-            {form.formState.errors.performedAt ? (
-              <p className="text-xs text-negative">
-                {form.formState.errors.performedAt.message}
-              </p>
-            ) : null}
-          </div>
+    <div className="space-y-6">
+      {/* Top Header & 3-Step Pill Stepper */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-4">
+        <div className="space-y-1">
+          <Link
+            href="/lecturas"
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-muted hover:text-ink mb-1"
+          >
+            <ArrowLeft className="size-3.5" aria-hidden="true" />
+            <span>Volver a lecturas</span>
+          </Link>
+          <h1 className="font-serif text-2xl sm:text-3xl text-ink">
+            {currentStep === 1 && "Paso 1: Configuración y Estructura"}
+            {currentStep === 2 && "Paso 2: Selección de Cartas y Notas"}
+            {currentStep === 3 && "Paso 3: Acomodar Mesa y Completar"}
+          </h1>
+          <p className="text-xs sm:text-sm text-muted">
+            {currentStep === 1 &&
+              "Selecciona tus mazos, la pregunta o tema y la estructura de cartas a utilizar."}
+            {currentStep === 2 &&
+              "Indica las cartas que salieron para cada posición y añade notas o eventos si ocurrieron."}
+            {currentStep === 3 &&
+              "Acomoda las cartas en el tapete interactivo arrastrándolas con total libertad."}
+          </p>
         </div>
 
-        {/* Multi-deck selector + last option "Registrar mazo" */}
-        <div className="space-y-2.5">
-          <div className="flex items-baseline justify-between gap-2">
-            <Label>Mazos a utilizar</Label>
-            <span className="text-xs text-muted">
-              Puedes elegir uno o varios mazos
-            </span>
-          </div>
-
-          <div className="divide-y divide-rule rounded-xl border border-border bg-ground">
-            {decks.map((d) => {
-              const checked = watchedDeckIds.includes(d.id);
+        {/* 3-Step Stepper Bar */}
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div
+            role="group"
+            aria-label="Progreso de la lectura"
+            className="inline-flex items-center gap-1 rounded-full border border-border bg-surface p-1 shadow-xs select-none"
+          >
+            {[
+              { id: 1, label: "1. Estructura", title: "Configuración y estructura" },
+              { id: 2, label: "2. Cartas", title: "Selección de cartas y notas" },
+              { id: 3, label: "3. Mesa", title: "Acomodar mesa y guardar" },
+            ].map((step) => {
+              const isActive = currentStep === step.id;
+              const isCompleted = currentStep > step.id;
               return (
-                <label
-                  key={d.id}
-                  htmlFor={`select-deck-${d.id}`}
+                <div
+                  key={step.id}
                   className={cn(
-                    "flex items-center justify-between gap-3 px-3.5 py-2.5 cursor-pointer transition-colors hover:bg-surface/70",
-                    checked && "bg-surface/90"
+                    "flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                    isActive
+                      ? "bg-accent text-on-primary font-semibold shadow-xs"
+                      : isCompleted
+                        ? "text-ink bg-surface-raised font-medium"
+                        : "text-muted"
                   )}
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <Checkbox
-                      id={`select-deck-${d.id}`}
-                      checked={checked}
-                      onCheckedChange={(val) =>
-                        toggleDeckSelection(d.id, val === true)
-                      }
-                    />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-ink truncate">
-                        {d.name}
-                      </p>
-                      <p className="text-xs text-muted truncate">
-                        {DECK_TRADITION_LABELS[d.tradition]}
-                      </p>
-                    </div>
-                  </div>
-                  {d.needsSetup ? (
-                    <Badge variant="warning">Faltan datos</Badge>
-                  ) : null}
-                </label>
+                  <span
+                    className={cn(
+                      "flex size-4.5 items-center justify-center rounded-full text-[10px]",
+                      isActive
+                        ? "bg-ground text-ink"
+                        : isCompleted
+                          ? "bg-accent/20 text-accent"
+                          : "bg-surface-raised border border-border text-muted"
+                    )}
+                  >
+                    {isCompleted ? <Check className="size-3" /> : step.id}
+                  </span>
+                  <span className="hidden sm:inline">{step.label}</span>
+                </div>
               );
             })}
-
-            {/* Last option: Registrar mazo */}
-            <div className="px-3.5 py-2.5 space-y-3">
-              <label
-                htmlFor="select-deck-register-new"
-                className="flex items-center gap-2.5 cursor-pointer select-none"
-              >
-                <Checkbox
-                  id="select-deck-register-new"
-                  checked={registerNewDeckChecked}
-                  onCheckedChange={(val) =>
-                    setRegisterNewDeckChecked(val === true)
-                  }
-                />
-                <span className="text-sm font-medium text-accent">
-                  Registrar mazo
-                </span>
-              </label>
-
-              {registerNewDeckChecked ? (
-                <div className="space-y-2 pl-6">
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <Input
-                      id="quick-new-deck-name"
-                      aria-label="Nombre del nuevo mazo"
-                      value={pendingDeckName}
-                      onChange={(e) => setPendingDeckName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          addQuickDeckName();
-                        }
-                      }}
-                      placeholder="Escribe el nombre del mazo (ej. Tarot Egipcio Kier)…"
-                    />
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={addQuickDeckName}
-                      className="shrink-0"
-                    >
-                      <Plus className="size-3.5" aria-hidden="true" />
-                      <span>Añadir mazo</span>
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted">
-                    Se guardará al abrir la mesa en vivo y verás un recordatorio en Inicio para completar su información.
-                  </p>
-                </div>
-              ) : null}
-
-              {watchedQuickNewDecks.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5 pl-6">
-                  {watchedQuickNewDecks.map((deckName) => (
-                    <span
-                      key={deckName}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-surface px-2.5 py-1 text-xs font-medium text-ink"
-                    >
-                      <span>Nuevo: {deckName}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeQuickDeckName(deckName)}
-                        aria-label={`Quitar mazo nuevo ${deckName}`}
-                        className="text-muted hover:text-negative"
-                      >
-                        <X className="size-3.5" aria-hidden="true" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        {/* Spread Structure Selector: 4 Classic + 5th "Personalizada" */}
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="reading-spread-select">
-              Estructura de cartas en la mesa
-            </Label>
-            <select
-              id="reading-spread-select"
-              value={selectStructureValue}
-              onChange={(e) => handleStructureChange(e.target.value)}
-              className="flex h-11 sm:h-10 w-full rounded-lg border border-control bg-raised px-3 text-sm text-ink transition-colors focus-visible:border-ink"
-            >
-              {spreads.map((sp) => (
-                <option key={sp.id} value={sp.id}>
-                  {sp.name}
-                </option>
-              ))}
-              <option value="custom">Personalizada</option>
-            </select>
           </div>
 
-          {watchedSpreadMode === "custom" ? (
-            <div className="space-y-1.5">
-              <Label htmlFor="reading-custom-spread-name">
-                Nombre de la estructura{" "}
-                <span className="text-muted font-normal">(opcional)</span>
-              </Label>
-              <Input
-                id="reading-custom-spread-name"
-                placeholder="Ej. Tirada de pareja, Espejo de 4 cartas…"
-                {...form.register("spreadName")}
-              />
-            </div>
-          ) : null}
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="reading-intention">
-            Pregunta o tema de la consulta
-          </Label>
-          <Textarea
-            id="reading-intention"
-            rows={3}
-            placeholder="¿Qué desea consultar la persona o qué quieres revisar en esta lectura?"
-            {...form.register("questionIntention")}
-          />
-          {form.formState.errors.questionIntention ? (
-            <p className="text-xs text-negative">
-              {form.formState.errors.questionIntention.message}
-            </p>
-          ) : null}
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="reading-context">
-            Notas previas{" "}
-            <span className="text-muted font-normal">(opcional)</span>
-          </Label>
-          <Textarea
-            id="reading-context"
-            rows={2}
-            placeholder="Contexto inicial o acuerdos previos de la sesión…"
-            {...form.register("sessionContext")}
-          />
-        </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border pt-4">
+          {/* Cancel button present on all steps */}
           <Button
             type="button"
-            variant="secondary"
-            onClick={() => router.back()}
-            disabled={isPending}
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsCancelDialogOpen(true)}
+            className="text-muted hover:text-negative hover:bg-negative/10 h-8 px-2.5 text-xs"
+            title="Cancelar lectura"
           >
-            Cancelar
-          </Button>
-          <Button type="submit" variant="primary" disabled={isPending}>
-            <span>{isPending ? "Abriendo mesa…" : "Abrir mesa en vivo"}</span>
-            <ArrowRight className="size-4" aria-hidden="true" />
+            <X className="size-3.5 mr-1" aria-hidden="true" />
+            <span>Cancelar lectura</span>
           </Button>
         </div>
       </div>
 
-      {/* Right column: Interactive Spatial Map & Position Meanings */}
-      <aside className="min-w-0 lg:col-span-5 space-y-5 lg:sticky lg:top-6">
-        <div className="min-w-0 rounded-xl border border-border bg-ground p-4 sm:p-5 space-y-4">
-          <div className="flex items-start justify-between gap-2">
-            <div className="space-y-1">
-              <h2 className="text-sm font-semibold text-ink">
-                {watchedSpreadMode === "custom"
-                  ? "Estructura personalizada"
-                  : (selectedSpread?.name ?? "Estructura de cartas")}
-              </h2>
-              <p className="text-xs text-muted leading-relaxed">
-                {watchedSpreadMode === "custom"
-                  ? "Arrastra las cartas directamente en el tapete o pulsa «Mover cartas» en móvil para acomodarlas a tu gusto."
-                  : selectedSpread?.description}
-              </p>
-            </div>
-            <Layers
-              className="size-4 text-muted shrink-0 mt-0.5"
-              aria-hidden="true"
-            />
+      {/* Linked Appointment notice if present */}
+      {initialAppointment ? (
+        <div className="rounded-lg border border-border bg-ground p-3.5 flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0 space-y-0.5">
+            <p className="break-words text-xs font-medium text-ink">
+              Vinculada a cita: {initialAppointment.title}
+            </p>
+            <p className="text-xs text-muted">
+              Al completar la lectura en el paso 3, el estado de la cita pasará automáticamente a Realizada.
+            </p>
           </div>
+          <Badge variant="positive">Cita conectada</Badge>
+        </div>
+      ) : null}
 
-          <SpreadMap
-            slots={previewSlots}
-            activePositionIndex={activeCustomIndex}
-            onSelectPosition={(idx) => setActiveCustomIndex(idx)}
-            editable={watchedSpreadMode === "custom"}
-            onMovePosition={
-              watchedSpreadMode === "custom"
-                ? handleMoveCustomPosition
-                : undefined
-            }
-          />
-
-          {watchedSpreadMode === "custom" ? (
-            <div className="border-t border-border pt-3 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-xs font-semibold text-ink">
-                  Posiciones en la mesa ({watchedCustomPositions.length})
-                </h3>
-                <div className="flex items-center gap-1.5">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={addCustomPosition}
-                    className="h-7 px-2 text-xs"
-                    disabled={watchedCustomPositions.length >= 10}
-                  >
-                    <Plus className="size-3 mr-1" aria-hidden="true" />
-                    <span>Añadir carta</span>
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() =>
-                      removeCustomPosition(watchedCustomPositions.length)
-                    }
-                    className="h-7 px-2 text-xs text-muted hover:text-ink"
-                    disabled={watchedCustomPositions.length <= 1}
-                  >
-                    <Minus className="size-3 mr-1" aria-hidden="true" />
-                    <span>Quitar última</span>
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={resetCustomPositions}
-                    className="h-7 px-2 text-xs text-muted hover:text-ink"
-                    title="Restablecer a 3 cartas"
-                  >
-                    <RotateCcw className="size-3" aria-hidden="true" />
-                    <span className="sr-only">Restablecer</span>
-                  </Button>
+      {/* ========================================================================= */}
+      {/* PASO 1: Configuración, Mazos, Pregunta, Notas & Estructura                 */}
+      {/* ========================================================================= */}
+      {currentStep === 1 && (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 items-start">
+          <div className="min-w-0 lg:col-span-7 space-y-6 rounded-xl border border-border bg-surface p-4 sm:p-6">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <div className="flex items-baseline justify-between gap-2">
+                  <Label htmlFor="step1-consultant">Consultante</Label>
+                  {!isRegisteringNewConsultant ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsRegisteringNewConsultant(true);
+                        setConsultantId("__new__");
+                      }}
+                      className="text-xs text-accent hover:underline inline-flex items-center gap-1"
+                    >
+                      <Plus className="size-3" aria-hidden="true" />
+                      <span>Nuevo consultante</span>
+                    </button>
+                  ) : null}
                 </div>
+                <select
+                  id="step1-consultant"
+                  className="flex h-11 sm:h-10 w-full rounded-lg border border-control bg-raised px-3 text-sm text-ink transition-colors focus-visible:border-ink"
+                  value={isRegisteringNewConsultant ? "__new__" : (consultantId || "")}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "__new__") {
+                      setIsRegisteringNewConsultant(true);
+                      setConsultantId("__new__");
+                    } else {
+                      setIsRegisteringNewConsultant(false);
+                      setQuickConsultantName("");
+                      setConsultantId(val);
+                    }
+                  }}
+                >
+                  <option value="">Lectura personal / Sin consultante</option>
+                  {consultants.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.displayName}
+                      {c.alias && c.alias !== c.fullName ? ` (${c.fullName})` : ""}
+                    </option>
+                  ))}
+                  <option value="__new__">+ Registrar nuevo consultante…</option>
+                </select>
+
+                {isRegisteringNewConsultant ? (
+                  <div className="mt-2 space-y-2 rounded-lg border border-accent/40 bg-accent/5 p-3 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label
+                        htmlFor="quick-new-consultant-name"
+                        className="text-xs font-medium text-accent"
+                      >
+                        Nombre o alias del nuevo consultante
+                      </Label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsRegisteringNewConsultant(false);
+                          setQuickConsultantName("");
+                          setConsultantId("");
+                        }}
+                        className="text-xs text-muted hover:text-ink inline-flex items-center gap-1"
+                      >
+                        <X className="size-3" aria-hidden="true" />
+                        <span>Cancelar</span>
+                      </button>
+                    </div>
+                    <Input
+                      id="quick-new-consultant-name"
+                      value={quickConsultantName}
+                      onChange={(e) => setQuickConsultantName(e.target.value)}
+                      placeholder="Escribe el nombre o alias (ej. Sofía Méndez)…"
+                      autoFocus
+                    />
+                  </div>
+                ) : null}
               </div>
 
-              {/* Lista editable de posiciones */}
-              <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                {watchedCustomPositions.map((pos) => {
-                  const isSelected = activeCustomIndex === pos.positionIndex;
+              <div className="space-y-1.5">
+                <Label htmlFor="step1-performed-at">Fecha y hora</Label>
+                <DateTimePicker
+                  id="step1-performed-at"
+                  value={performedAt}
+                  onChange={(val) => setPerformedAt(val)}
+                />
+              </div>
+            </div>
+
+            {/* Mazos a utilizar */}
+            <div className="space-y-2.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <Label>Mazos a utilizar</Label>
+                <span className="text-xs text-muted">
+                  Puedes elegir uno o varios mazos
+                </span>
+              </div>
+
+              <div className="divide-y divide-rule rounded-xl border border-border bg-ground">
+                {decks.map((d) => {
+                  const checked = selectedDeckIds.includes(d.id);
                   return (
-                    <div
-                      key={pos.positionIndex}
-                      onClick={() => setActiveCustomIndex(pos.positionIndex)}
+                    <label
+                      key={d.id}
+                      htmlFor={`select-deck-${d.id}`}
                       className={cn(
-                        "rounded-lg border p-2.5 transition-colors cursor-pointer space-y-2 text-xs",
-                        isSelected
-                          ? "border-accent bg-accent/5 ring-1 ring-accent/30"
-                          : "border-border bg-surface hover:border-border-hover"
+                        "flex items-center justify-between gap-3 px-3.5 py-2.5 cursor-pointer transition-colors hover:bg-surface/70",
+                        checked && "bg-surface/90"
                       )}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 flex-1 min-w-0">
-                          <span className="inline-flex size-5 items-center justify-center rounded-full bg-ground border border-border text-[11px] font-medium text-ink shrink-0 num-tabular">
-                            {pos.positionIndex}
-                          </span>
-                          <input
-                            type="text"
-                            value={pos.title}
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <Checkbox
+                          id={`select-deck-${d.id}`}
+                          checked={checked}
+                          onCheckedChange={(val) =>
+                            toggleDeckSelection(d.id, val === true)
+                          }
+                        />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-ink truncate">
+                            {d.name}
+                          </p>
+                          <p className="text-xs text-muted truncate">
+                            {DECK_TRADITION_LABELS[d.tradition]}
+                          </p>
+                        </div>
+                      </div>
+                      {d.needsSetup ? (
+                        <Badge variant="warning">Faltan datos</Badge>
+                      ) : null}
+                    </label>
+                  );
+                })}
+
+                {/* Option to quickly register a new deck */}
+                <div className="px-3.5 py-2.5 space-y-3">
+                  <label
+                    htmlFor="select-deck-register-new"
+                    className="flex items-center gap-2.5 cursor-pointer select-none"
+                  >
+                    <Checkbox
+                      id="select-deck-register-new"
+                      checked={registerNewDeckChecked}
+                      onCheckedChange={(val) =>
+                        setRegisterNewDeckChecked(val === true)
+                      }
+                    />
+                    <span className="text-sm font-medium text-accent">
+                      Registrar mazo
+                    </span>
+                  </label>
+
+                  {registerNewDeckChecked ? (
+                    <div className="space-y-2 pl-6">
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <Input
+                          id="step1-quick-new-deck-name"
+                          value={pendingDeckName}
+                          onChange={(e) => setPendingDeckName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              addQuickDeckName();
+                            }
+                          }}
+                          placeholder="Escribe el nombre del mazo (ej. Tarot Egipcio)…"
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={addQuickDeckName}
+                          className="shrink-0"
+                        >
+                          <Plus className="size-3.5" aria-hidden="true" />
+                          <span>Añadir mazo</span>
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {quickNewDecks.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5 pl-6">
+                      {quickNewDecks.map((deckName) => (
+                        <span
+                          key={deckName}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-accent/40 bg-surface px-2.5 py-1 text-xs font-medium text-ink"
+                        >
+                          <span>Nuevo: {deckName}</span>
+                          <button
+                            type="button"
+                            onClick={() => removeQuickDeckName(deckName)}
+                            aria-label={`Quitar mazo ${deckName}`}
+                            className="text-muted hover:text-negative"
+                          >
+                            <X className="size-3.5" aria-hidden="true" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            {/* Estructura de cartas en la mesa */}
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="step1-spread-select">
+                  Estructura de cartas a utilizar
+                </Label>
+                <select
+                  id="step1-spread-select"
+                  value={spreadMode === "custom" ? "custom" : spreadTemplateId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "custom") {
+                      setSpreadMode("custom");
+                      setSpreadName("Estructura personalizada");
+                    } else {
+                      setSpreadMode("classic");
+                      setSpreadTemplateId(val);
+                      const found = spreads.find((s) => s.id === val);
+                      if (found) setSpreadName(found.name);
+                    }
+                  }}
+                  className="flex h-11 sm:h-10 w-full rounded-lg border border-control bg-raised px-3 text-sm text-ink transition-colors focus-visible:border-ink"
+                >
+                  {spreads.map((sp) => (
+                    <option key={sp.id} value={sp.id}>
+                      {sp.name} ({sp.positions.length} cartas)
+                    </option>
+                  ))}
+                  <option value="custom">Estructura personalizada</option>
+                </select>
+              </div>
+
+              {spreadMode === "custom" ? (
+                <div className="space-y-4 rounded-xl border border-accent/30 bg-accent/5 p-4 animate-in fade-in duration-200">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="step1-custom-spread-name">
+                      Nombre de la estructura personalizada{" "}
+                      <span className="text-muted font-normal">(opcional)</span>
+                    </Label>
+                    <Input
+                      id="step1-custom-spread-name"
+                      value={spreadName}
+                      onChange={(e) => setSpreadName(e.target.value)}
+                      placeholder="Ej. Tirada de pareja, Espejo de 4 cartas…"
+                    />
+                  </div>
+
+                  {/* Campos para agregar el significado de cada carta */}
+                  <div className="space-y-3 pt-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <h4 className="text-xs font-semibold text-ink">
+                          Significados de cada posición ({customPositions.length})
+                        </h4>
+                        <p className="text-[11px] text-muted">
+                          Si dejas los campos vacíos, automáticamente se nombrarán «Carta 1», «Carta 2», etc.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={addCustomPosition}
+                          disabled={customPositions.length >= 12}
+                          className="h-7 px-2 text-xs"
+                        >
+                          <Plus className="size-3 mr-1" aria-hidden="true" />
+                          <span>Añadir carta</span>
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => removeCustomPosition(customPositions.length)}
+                          disabled={customPositions.length <= 1}
+                          className="h-7 px-2 text-xs text-muted hover:text-ink"
+                        >
+                          <Minus className="size-3 mr-1" aria-hidden="true" />
+                          <span>Quitar última</span>
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={resetCustomPositions}
+                          className="h-7 px-2 text-xs text-muted hover:text-ink"
+                          title="Restablecer a 3 cartas"
+                        >
+                          <RotateCcw className="size-3" aria-hidden="true" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                      {customPositions.map((pos) => (
+                        <div
+                          key={pos.positionIndex}
+                          className="rounded-lg border border-border bg-surface p-3 space-y-2 text-xs"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex size-5 items-center justify-center rounded-full bg-ground border border-border text-[11px] font-medium text-ink shrink-0 num-tabular">
+                              {pos.positionIndex}
+                            </span>
+                            <Input
+                              value={pos.title}
+                              onChange={(e) =>
+                                updateCustomPositionField(
+                                  pos.positionIndex,
+                                  "title",
+                                  e.target.value
+                                )
+                              }
+                              placeholder={`Carta ${pos.positionIndex} (vacío toma este nombre)`}
+                              className="h-8 text-xs font-medium"
+                            />
+                            {customPositions.length > 1 ? (
+                              <button
+                                type="button"
+                                onClick={() => removeCustomPosition(pos.positionIndex)}
+                                aria-label={`Quitar posición ${pos.positionIndex}`}
+                                className="text-muted hover:text-negative shrink-0 p-1"
+                              >
+                                <Trash2 className="size-3.5" aria-hidden="true" />
+                              </button>
+                            ) : null}
+                          </div>
+                          <Input
+                            value={pos.prompt}
                             onChange={(e) =>
-                              updateCustomPositionTitle(
+                              updateCustomPositionField(
                                 pos.positionIndex,
+                                "prompt",
                                 e.target.value
                               )
                             }
-                            onClick={(e) => e.stopPropagation()}
-                            placeholder={`Carta ${pos.positionIndex}`}
-                            className="flex-1 bg-transparent font-medium text-ink focus:outline-none focus:underline"
+                            placeholder="Significado o enfoque de esta carta (ej. Pasado, Bloqueo, Consejo)…"
+                            className="h-8 text-xs text-muted placeholder:text-muted/60"
                           />
                         </div>
-                        <span className="text-[10px] text-muted num-tabular shrink-0">
-                          X:{Math.round(pos.coordX)}% Y:{Math.round(pos.coordY)}%
-                        </span>
-                      </div>
-                      <input
-                        type="text"
-                        value={pos.prompt}
-                        onChange={(e) =>
-                          updateCustomPositionPrompt(
-                            pos.positionIndex,
-                            e.target.value
-                          )
-                        }
-                        onClick={(e) => e.stopPropagation()}
-                        placeholder="Significado o enfoque de esta carta (opcional)"
-                        className="w-full text-xs text-muted placeholder:text-muted/60 bg-transparent focus:outline-none focus:text-ink"
-                      />
+                      ))}
                     </div>
-                  );
-                })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            {/* Pregunta o tema de la consulta */}
+            <div className="space-y-1.5">
+              <Label htmlFor="step1-intention">
+                Pregunta o tema de la consulta
+              </Label>
+              <Textarea
+                id="step1-intention"
+                rows={3}
+                value={questionIntention}
+                onChange={(e) => setQuestionIntention(e.target.value)}
+                placeholder="¿Qué desea consultar la persona o qué quieres revisar en esta lectura?"
+              />
+            </div>
+
+            {/* Notas previas / contexto */}
+            <div className="space-y-1.5">
+              <Label htmlFor="step1-context">
+                Notas previas / Contexto{" "}
+                <span className="text-muted font-normal">(opcional)</span>
+              </Label>
+              <Textarea
+                id="step1-context"
+                rows={2}
+                value={sessionContext}
+                onChange={(e) => setSessionContext(e.target.value)}
+                placeholder="Contexto inicial, acuerdos o notas previas a la tirada…"
+              />
+            </div>
+
+            {/* Bottom Actions for Step 1 */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setIsCancelDialogOpen(true)}
+                className="text-muted hover:text-negative"
+              >
+                Cancelar lectura
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                onClick={handleNextStep1}
+              >
+                <span>Siguiente: Indicar cartas y notas</span>
+                <ArrowRight className="size-4" aria-hidden="true" />
+              </Button>
+            </div>
+          </div>
+
+          {/* Right column: Preview of chosen structure */}
+          <aside className="min-w-0 lg:col-span-5 space-y-5 lg:sticky lg:top-6">
+            <div className="rounded-xl border border-border bg-ground p-4 sm:p-5 space-y-4">
+              <div className="flex items-start justify-between gap-2">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold text-ink">
+                    {spreadMode === "custom"
+                      ? "Estructura personalizada"
+                      : (selectedClassicSpread?.name ?? "Estructura de cartas")}
+                  </h3>
+                  <p className="text-xs text-muted leading-relaxed">
+                    {spreadMode === "custom"
+                      ? `Has configurado ${customPositions.length} cartas. En el paso 2 elegirás qué carta salió en cada una, y en el paso 3 las acomodarás espacialmente.`
+                      : selectedClassicSpread?.description}
+                  </p>
+                </div>
+                <Layers className="size-4 text-muted shrink-0 mt-0.5" aria-hidden="true" />
+              </div>
+
+              {spreadMode === "classic" && selectedClassicSpread ? (
+                <div className="border-t border-border pt-3 space-y-2">
+                  <h4 className="text-xs font-semibold text-ink">
+                    Posiciones de la tirada ({selectedClassicSpread.positions.length})
+                  </h4>
+                  <ol className="space-y-2 text-xs text-muted max-h-72 overflow-y-auto pr-1">
+                    {selectedClassicSpread.positions.map((pos) => (
+                      <li key={pos.positionIndex} className="flex items-start gap-2">
+                        <span className="font-semibold text-ink num-tabular mt-0.5">
+                          {pos.positionIndex}.
+                        </span>
+                        <div>
+                          <p className="font-medium text-ink">{pos.title}</p>
+                          {pos.prompt ? (
+                            <p className="text-[11px] text-muted">{pos.prompt}</p>
+                          ) : null}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              ) : null}
+
+              <div className="rounded-lg border border-border/70 bg-surface/70 p-3 text-xs text-muted flex items-start gap-2.5">
+                <Sparkles className="size-4 text-accent shrink-0 mt-0.5" aria-hidden="true" />
+                <p className="leading-relaxed">
+                  <strong>Flujo guiado en 3 pasos:</strong> Primero configuras la estructura. Luego indicas las cartas, eventos y notas. Finalmente acomodas la mesa a tu gusto.
+                </p>
               </div>
             </div>
-          ) : null}
+          </aside>
+        </div>
+      )}
 
-          {watchedSpreadMode === "classic" &&
-          selectedSpread &&
-          selectedSpread.positions.length > 0 ? (
-            <div className="border-t border-border pt-3 space-y-2">
-              <h3 className="text-xs font-semibold text-ink">
-                Posiciones de la tirada ({selectedSpread.positions.length})
-              </h3>
-              <ol className="space-y-1.5 text-xs text-muted max-h-56 overflow-y-auto pr-1">
-                {selectedSpread.positions.map((pos) => (
-                  <li
-                    key={pos.positionIndex}
-                    className="flex items-baseline gap-2"
-                  >
-                    <span className="font-medium text-ink num-tabular">
-                      {pos.positionIndex}.
-                    </span>
-                    <span>
-                      <strong className="font-medium text-ink">
-                        {pos.title}:
-                      </strong>{" "}
-                      {pos.prompt}
-                    </span>
-                  </li>
-                ))}
-              </ol>
+      {/* ========================================================================= */}
+      {/* PASO 2: Selección de Cartas por Mazo Elegido, Eventos y Notas              */}
+      {/* ========================================================================= */}
+      {currentStep === 2 && (
+        <div className="space-y-6">
+          {/* Deck filtering summary banner */}
+          <div className="rounded-xl border border-accent/40 bg-accent/5 p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <p className="text-xs font-semibold text-accent uppercase tracking-wider">
+                Filtro de cartas activo por mazo
+              </p>
+              <p className="text-xs text-ink">
+                Mostrando únicamente las <strong>{availableFilteredCards.length} cartas</strong> correspondientes a la tradición:{" "}
+                <span className="font-medium text-accent">{selectedDeckTraditionsLabel}</span>.
+              </p>
             </div>
-          ) : null}
+            <div className="text-xs text-muted">
+              Paso 2 de 3: Cartas y notas
+            </div>
+          </div>
 
-          <div className="rounded-lg border border-border/70 bg-surface/70 p-3 text-xs text-muted flex items-start gap-2.5">
-            <Sparkles
-              className="size-4 text-accent shrink-0 mt-0.5"
-              aria-hidden="true"
-            />
-            <p className="leading-relaxed">
-              <strong>Paso preparatorio:</strong> Al pulsar &ldquo;Abrir mesa en vivo&rdquo; pasarás a la mesa interactiva para asignar las cartas, tirar los mazos y modificar la estructura.
-            </p>
+          {/* Cards for each position in the spread */}
+          <div className="space-y-4">
+            {cardSlots.map((slot) => {
+              const isNotesExpanded = expandedNotesIndex === slot.positionIndex;
+              const slotEvents = localDeckEvents.filter(
+                (e) => e.positionIndex === slot.positionIndex
+              );
+              const selectedCard = slot.cardId
+                ? cardByIdMap.get(slot.cardId)
+                : null;
+
+              return (
+                <div
+                  key={slot.positionIndex}
+                  className="rounded-xl border border-border bg-surface p-4 sm:p-5 space-y-4 transition-colors hover:border-border-hover"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border pb-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="inline-flex size-6 items-center justify-center rounded-full bg-accent text-on-primary text-xs font-semibold shrink-0 num-tabular">
+                        {slot.positionIndex}
+                      </span>
+                      <div>
+                        <h3 className="text-sm font-semibold text-ink">
+                          {slot.positionTitle}
+                        </h3>
+                        {slot.positionPrompt ? (
+                          <p className="text-xs text-muted">
+                            {slot.positionPrompt}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {selectedCard ? (
+                        <Badge variant="positive">Carta asignada</Badge>
+                      ) : (
+                        <Badge variant="neutral">Pendiente</Badge>
+                      )}
+                      {slotEvents.length > 0 ? (
+                        <Badge variant="phenomenon">
+                          {slotEvents.length}{" "}
+                          {slotEvents.length === 1 ? "evento" : "eventos"}
+                        </Badge>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* Card selector & Orientation row */}
+                  <div className="grid gap-3 sm:grid-cols-12 items-center">
+                    <div className="sm:col-span-8">
+                      <Label
+                        htmlFor={`card-select-${slot.positionIndex}`}
+                        className="text-xs text-muted mb-1 block"
+                      >
+                        Carta colocada en esta posición
+                      </Label>
+                      <CardCombobox
+                        id={`card-select-${slot.positionIndex}`}
+                        cards={availableFilteredCards}
+                        value={slot.cardId}
+                        onChange={(cardId) =>
+                          updateCardSlot(slot.positionIndex, { cardId })
+                        }
+                        placeholder={`Seleccionar carta para «${slot.positionTitle}»…`}
+                        allowClear
+                      />
+                    </div>
+
+                    <div className="sm:col-span-4">
+                      <Label className="text-xs text-muted mb-1 block">
+                        Orientación
+                      </Label>
+                      <div className="inline-flex w-full rounded-lg border border-control bg-raised p-0.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateCardSlot(slot.positionIndex, {
+                              orientation: "upright",
+                            })
+                          }
+                          className={cn(
+                            "flex-1 rounded-md py-1.5 text-xs font-medium transition-colors",
+                            slot.orientation === "upright"
+                              ? "bg-surface text-ink shadow-xs"
+                              : "text-muted hover:text-ink"
+                          )}
+                        >
+                          Al derecho
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            updateCardSlot(slot.positionIndex, {
+                              orientation: "reversed",
+                            })
+                          }
+                          className={cn(
+                            "flex-1 rounded-md py-1.5 text-xs font-medium transition-colors",
+                            slot.orientation === "reversed"
+                              ? "bg-warning/20 text-warning font-semibold shadow-xs"
+                              : "text-muted hover:text-ink"
+                          )}
+                        >
+                          Invertida
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Physical Events associated with this card slot */}
+                  <div className="rounded-lg border border-border/80 bg-ground p-3 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <Zap className="size-3.5 text-accent" aria-hidden="true" />
+                        <span className="text-xs font-semibold text-ink">
+                          Eventos físicos del mazo
+                        </span>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => openDeckEventModal(slot.positionIndex)}
+                        className="h-7 px-2.5 text-xs"
+                      >
+                        <Plus className="size-3 mr-1" aria-hidden="true" />
+                        <span>Registrar evento</span>
+                      </Button>
+                    </div>
+
+                    {slotEvents.length > 0 ? (
+                      <div className="space-y-1.5">
+                        {slotEvents.map((ev) => (
+                          <div
+                            key={ev.localId}
+                            className="flex items-center justify-between gap-2 rounded-md border border-border bg-surface px-2.5 py-1.5 text-xs"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="font-semibold text-accent shrink-0">
+                                {PHENOMENON_LABELS[ev.phenomenonType]}:
+                              </span>
+                              <span className="truncate text-ink">
+                                {ev.observationDescription}
+                              </span>
+                              <span className="text-muted text-[11px] shrink-0">
+                                ({DECK_PHASE_LABELS[ev.occurredPhase]})
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeDeckEvent(ev.localId)}
+                              aria-label="Quitar evento"
+                              className="text-muted hover:text-negative shrink-0 p-1"
+                            >
+                              <X className="size-3.5" aria-hidden="true" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-muted italic">
+                        Sin eventos registrados (ej. saltó al barajar, cayó de la mesa, dada vuelta).
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Collapsible Notes on card emergence & contextual interpretation */}
+                  <div className="border-t border-border/80 pt-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedNotesIndex(
+                          isNotesExpanded ? null : slot.positionIndex
+                        )
+                      }
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-accent hover:underline py-1"
+                    >
+                      {isNotesExpanded ? (
+                        <>
+                          <ChevronUp className="size-3.5" aria-hidden="true" />
+                          <span>Ocultar notas e interpretación de esta carta</span>
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="size-3.5" aria-hidden="true" />
+                          <span>
+                            {slot.observationNotes || slot.contextualInterpretation
+                              ? "Editar notas e interpretación (con notas)"
+                              : "+ Agregar notas sobre la salida de esta carta"}
+                          </span>
+                        </>
+                      )}
+                    </button>
+
+                    {isNotesExpanded ? (
+                      <div className="mt-3 space-y-3 rounded-lg border border-border bg-ground p-3.5 animate-in fade-in duration-200">
+                        <div className="space-y-1">
+                          <Label
+                            htmlFor={`notes-obs-${slot.positionIndex}`}
+                            className="text-xs text-muted"
+                          >
+                            Notas sobre la salida y observación inmediata
+                          </Label>
+                          <Textarea
+                            id={`notes-obs-${slot.positionIndex}`}
+                            rows={2}
+                            value={slot.observationNotes}
+                            onChange={(e) =>
+                              updateCardSlot(slot.positionIndex, {
+                                observationNotes: e.target.value,
+                              })
+                            }
+                            placeholder="Detalles de cómo apareció la carta, impresiones espontáneas o simbolismo notorio…"
+                            className="text-xs"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label
+                            htmlFor={`notes-interp-${slot.positionIndex}`}
+                            className="text-xs text-muted"
+                          >
+                            Interpretación contextual
+                          </Label>
+                          <Textarea
+                            id={`notes-interp-${slot.positionIndex}`}
+                            rows={2}
+                            value={slot.contextualInterpretation}
+                            onChange={(e) =>
+                              updateCardSlot(slot.positionIndex, {
+                                contextualInterpretation: e.target.value,
+                              })
+                            }
+                            placeholder="¿Qué responde esta carta a la consulta o al consultante?"
+                            className="text-xs"
+                          />
+                        </div>
+
+                        <label
+                          htmlFor={`notes-sync-${slot.positionIndex}`}
+                          className="flex items-center gap-2 cursor-pointer pt-1"
+                        >
+                          <Checkbox
+                            id={`notes-sync-${slot.positionIndex}`}
+                            checked={slot.syncToGrimorio}
+                            onCheckedChange={(val) =>
+                              updateCardSlot(slot.positionIndex, {
+                                syncToGrimorio: val === true,
+                              })
+                            }
+                          />
+                          <span className="text-xs text-muted">
+                            Sincronizar apunte al Grimorio personal
+                          </span>
+                        </label>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Bottom Actions for Step 2 */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleBackToStep1}
+              >
+                <ArrowLeft className="size-4" aria-hidden="true" />
+                <span>Volver a Configuración</span>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setIsCancelDialogOpen(true)}
+                className="text-muted hover:text-negative"
+              >
+                Cancelar lectura
+              </Button>
+            </div>
+
+            <Button
+              type="button"
+              variant="primary"
+              onClick={handleNextStep2}
+            >
+              <span>Siguiente: Acomodar cartas en la mesa</span>
+              <ArrowRight className="size-4" aria-hidden="true" />
+            </Button>
           </div>
         </div>
-      </aside>
-    </form>
+      )}
+
+      {/* ========================================================================= */}
+      {/* PASO 3: Acomodar Cartas en la Mesa (Tapete Interactivo) & Guardar          */}
+      {/* ========================================================================= */}
+      {currentStep === 3 && (
+        <div className="space-y-6">
+          {/* Step 3 Header Banner */}
+          <div className="rounded-xl border border-border bg-ground p-4 sm:p-5 flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1">
+              <h2 className="text-base font-semibold text-ink">
+                Acomoda las cartas en el tapete de lectura
+              </h2>
+              <p className="text-xs text-muted">
+                Arrastra las cartas con el ratón o con el dedo para colocarlas exactamente en la posición que desees. La navegación vertical queda bloqueada mientras mueves las cartas para tu comodidad.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={distributeHorizontal}
+                className="text-xs h-7.5"
+              >
+                Alinear en línea
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={resetToTemplatePositions}
+                className="text-xs h-7.5 text-muted hover:text-ink"
+              >
+                <RotateCcw className="size-3 mr-1" aria-hidden="true" />
+                <span>Restablecer</span>
+              </Button>
+            </div>
+          </div>
+
+          {/* Interactive Spatial Map */}
+          <div className="space-y-4">
+            <SpreadMap
+              slots={step3MapSlots}
+              activePositionIndex={activeBoardIndex}
+              onSelectPosition={(idx) => setActiveBoardIndex(idx)}
+              editable={true}
+              onMovePosition={handleMoveBoardCard}
+            />
+          </div>
+
+          {/* Final Session Synthesis & Tags */}
+          <div className="rounded-xl border border-border bg-surface p-4 sm:p-6 space-y-4">
+            <h3 className="text-sm font-semibold text-ink">
+              Síntesis y notas finales de la lectura{" "}
+              <span className="text-muted font-normal">(opcional)</span>
+            </h3>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="step3-session-title">Título de la lectura</Label>
+              <Input
+                id="step3-session-title"
+                value={sessionTitle}
+                onChange={(e) => setSessionTitle(e.target.value)}
+                placeholder="Ej. Lectura de claridad profesional, Tirada de luna nueva…"
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="step3-observations">
+                  Observaciones generales
+                </Label>
+                <Textarea
+                  id="step3-observations"
+                  rows={3}
+                  value={generalObservations}
+                  onChange={(e) => setGeneralObservations(e.target.value)}
+                  placeholder="Atmósfera de la lectura, sincronicidades, comentarios del consultante…"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="step3-synthesis">Síntesis o conclusión</Label>
+                <Textarea
+                  id="step3-synthesis"
+                  rows={3}
+                  value={sessionSynthesis}
+                  onChange={(e) => setSessionSynthesis(e.target.value)}
+                  placeholder="Mensaje central de la tirada, consejo final o plan de acción…"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Etiquetas de la lectura</Label>
+              <TagInput
+                value={readingTags}
+                onChange={setReadingTags}
+                suggestions={tagSuggestions}
+                placeholder="Escribe una etiqueta y pulsa Enter (ej. trabajo, vínculos, consejo)…"
+              />
+            </div>
+          </div>
+
+          {/* Bottom Actions for Step 3 */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleBackToStep2}
+                disabled={isPending}
+              >
+                <ArrowLeft className="size-4" aria-hidden="true" />
+                <span>Volver a Cartas y Notas</span>
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setIsCancelDialogOpen(true)}
+                disabled={isPending}
+                className="text-muted hover:text-negative"
+              >
+                Cancelar lectura
+              </Button>
+            </div>
+
+            <Button
+              type="button"
+              variant="primary"
+              size="lg"
+              onClick={handleCompleteAndSave}
+              disabled={isPending}
+              className="font-medium"
+            >
+              <Sparkles className="size-4" aria-hidden="true" />
+              <span>
+                {isPending
+                  ? "Guardando lectura…"
+                  : "Completar y guardar lectura"}
+              </span>
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* DIALOG: Registrar Evento Físico del Mazo (Paso 2)                         */}
+      {/* ========================================================================= */}
+      <Dialog
+        open={eventModalSlotIndex !== null}
+        onOpenChange={(open) => {
+          if (!open) setEventModalSlotIndex(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Registrar evento físico del mazo</DialogTitle>
+            <DialogDescription>
+              Asociado a la posición #{eventModalSlotIndex}:{" "}
+              {cardSlots.find((s) => s.positionIndex === eventModalSlotIndex)
+                ?.positionTitle}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Tipo de fenómeno</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {PHENOMENON_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.type}
+                    type="button"
+                    onClick={() => setModalPhenomenon(opt.type)}
+                    className={cn(
+                      "flex items-start gap-2 rounded-lg border p-2 text-left transition-colors text-xs",
+                      modalPhenomenon === opt.type
+                        ? "border-accent bg-accent/10 text-ink ring-1 ring-accent"
+                        : "border-border bg-surface hover:bg-surface-raised text-muted hover:text-ink"
+                    )}
+                  >
+                    <span className="text-sm shrink-0">{opt.icon}</span>
+                    <div className="min-w-0">
+                      <p className="font-semibold">{opt.label}</p>
+                      <p className="text-[10px] text-muted truncate">{opt.hint}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="modal-phase">Fase en la que ocurrió</Label>
+              <select
+                id="modal-phase"
+                value={modalPhase}
+                onChange={(e) => setModalPhase(e.target.value as DeckPhase)}
+                className="flex h-9 w-full rounded-lg border border-control bg-raised px-3 text-xs text-ink"
+              >
+                {PHASE_OPTIONS.map((p) => (
+                  <option key={p.phase} value={p.phase}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="modal-desc">Descripción del suceso</Label>
+              <Textarea
+                id="modal-desc"
+                rows={2}
+                value={modalDescription}
+                onChange={(e) => setModalDescription(e.target.value)}
+                placeholder="Ej. La carta saltó sola hacia la derecha al mezclar la segunda pasada…"
+                className="text-xs"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="modal-interp">
+                Interpretación intuitiva{" "}
+                <span className="text-muted font-normal">(opcional)</span>
+              </Label>
+              <Textarea
+                id="modal-interp"
+                rows={2}
+                value={modalInterpretation}
+                onChange={(e) => setModalInterpretation(e.target.value)}
+                placeholder="¿Qué significado o aviso sugiere este fenómeno?"
+                className="text-xs"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setEventModalSlotIndex(null)}
+            >
+              Cancelar
+            </Button>
+            <Button type="button" variant="primary" onClick={saveDeckEvent}>
+              Guardar evento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ========================================================================= */}
+      {/* ALERT DIALOG: Confirmación de Cancelar Lectura (Requiere doble pulsación)  */}
+      {/* ========================================================================= */}
+      <AlertDialog
+        open={isCancelDialogOpen}
+        onOpenChange={setIsCancelDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Deseas cancelar la lectura?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se cerrará la mesa y se perderán las configuraciones, cartas seleccionadas y notas ingresadas en esta lectura. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Continuar con la lectura</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmCancel}
+              className="bg-negative text-white hover:bg-negative/90"
+            >
+              Sí, cancelar lectura
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
   );
 }

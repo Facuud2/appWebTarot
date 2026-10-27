@@ -179,6 +179,32 @@ export function SpreadMap({
   const activeSlot =
     slots.find((s) => s.positionIndex === activePositionIndex) ?? null;
 
+  React.useEffect(() => {
+    if (draggingIndex === null && !isResizingPanel) {
+      return undefined;
+    }
+
+    const originalOverflow = document.body.style.overflow;
+    const originalTouchAction = document.body.style.touchAction;
+    document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
+
+    const preventDefaultTouch = (e: TouchEvent) => {
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener("touchmove", preventDefaultTouch, {
+      passive: false,
+    });
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      document.body.style.touchAction = originalTouchAction;
+      window.removeEventListener("touchmove", preventDefaultTouch);
+    };
+  }, [draggingIndex, isResizingPanel]);
+
   const handleResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
     e.preventDefault();
@@ -354,7 +380,9 @@ export function SpreadMap({
         style={{ height: `${panelHeight}px` }}
         className={cn(
           "relative w-full overflow-hidden bg-surface/60 select-none transition-[border-color]",
-          editable && mobileMoveEnabled ? "touch-none" : "touch-pan-y"
+          editable && (mobileMoveEnabled || draggingIndex !== null)
+            ? "touch-none"
+            : "touch-pan-y"
         )}
         role="region"
         aria-label="Ubicación de las cartas en la mesa"
@@ -380,13 +408,16 @@ export function SpreadMap({
           ) => {
             if (!editable || !onMovePosition) return;
             const isMouse = e.pointerType === "mouse";
-            if (!isMouse && !mobileMoveEnabled) {
-              return;
-            }
+            if (!isMouse && !mobileMoveEnabled) return;
             if (isMouse && e.button !== 0) return;
 
             e.preventDefault();
-            e.currentTarget.setPointerCapture?.(e.pointerId);
+            e.stopPropagation();
+            try {
+              e.currentTarget.setPointerCapture?.(e.pointerId);
+            } catch {
+              // ignore
+            }
             pointerStartRef.current = {
               x: e.clientX,
               y: e.clientY,
@@ -406,6 +437,7 @@ export function SpreadMap({
               return;
             }
 
+            e.preventDefault();
             if (pointerStartRef.current) {
               const dx = Math.abs(e.clientX - pointerStartRef.current.x);
               const dy = Math.abs(e.clientY - pointerStartRef.current.y);
@@ -458,10 +490,9 @@ export function SpreadMap({
               className={cn(
                 "group absolute -translate-x-1/2 -translate-y-1/2 flex flex-col justify-between rounded-xl border text-center shadow-sm transition-[border-color,box-shadow,transform]",
                 cardSizeClass,
-                editable && "sm:cursor-grab",
+                editable && "cursor-grab touch-none",
                 isDragging &&
-                  "z-30 scale-105 border-accent ring-2 ring-accent/40 shadow-md sm:cursor-grabbing",
-                editable && mobileMoveEnabled && "touch-none cursor-grab",
+                  "z-30 scale-105 border-accent ring-2 ring-accent/40 shadow-md cursor-grabbing touch-none",
                 slot.card
                   ? "bg-ground border-control text-ink hover:border-ink/60"
                   : "bg-ground/95 border-border text-muted hover:border-control hover:text-ink",
