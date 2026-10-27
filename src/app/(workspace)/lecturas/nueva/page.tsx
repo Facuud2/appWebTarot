@@ -8,6 +8,7 @@ import {
   listAvailableDecks,
   listSpreadTemplates,
 } from "@/repositories/grimorio-repository";
+import { BUILTIN_SPREAD_TEMPLATES } from "@/lib/tarot-catalog";
 import { requireUser } from "@/server/session";
 
 export const metadata: Metadata = {
@@ -28,9 +29,22 @@ export default async function NewReadingPage({
 
   const consultants = await listConsultants(user.id, { includeArchived: false });
   const decks = await listAvailableDecks(user.id);
-  const classicSpreads = (await listSpreadTemplates(user.id)).filter(
+  const fetchedSpreads = (await listSpreadTemplates(user.id)).filter(
     (s) => s.isBuiltin
   );
+  const classicSpreads =
+    fetchedSpreads.length > 0
+      ? fetchedSpreads
+      : BUILTIN_SPREAD_TEMPLATES.map((b) => ({
+          id: b.id,
+          userId: null,
+          name: b.name,
+          category: b.category,
+          description: b.description,
+          positions: b.positions,
+          isBuiltin: true,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        }));
 
   const appointment = params.appointmentId
     ? await getAppointmentById(user.id, params.appointmentId)

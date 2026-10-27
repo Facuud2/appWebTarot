@@ -14,10 +14,13 @@ export default async function AgendaPage({
   searchParams: Promise<{ nueva?: string; consultantId?: string }>;
 }) {
   const user = await requireUser();
-  const params = await searchParams;
+  const params = (await searchParams.catch(() => ({}))) as {
+    nueva?: string;
+    consultantId?: string;
+  };
 
-  const appointments = await listAppointments(user.id, { ascending: true });
-  const consultants = await listConsultants(user.id, { includeArchived: false });
+  const appointments = await listAppointments(user.id, { ascending: true }).catch(() => []);
+  const consultants = await listConsultants(user.id, { includeArchived: false }).catch(() => []);
   const initialNowIso = new Date().toISOString();
 
   return (

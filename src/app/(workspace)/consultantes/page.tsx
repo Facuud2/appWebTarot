@@ -14,20 +14,23 @@ export default async function ConsultantesPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const user = await requireUser();
-  const params = await searchParams;
+  const params = (await searchParams.catch(() => ({}))) as Record<
+    string,
+    string | string[] | undefined
+  >;
 
-  const q = typeof params.q === "string" ? params.q : "";
-  const tag = typeof params.tag === "string" ? params.tag : "";
-  const showingArchived = params.archivados === "1";
-  const openCreateInitially = params.nuevo === "1";
+  const q = typeof params?.q === "string" ? params.q : "";
+  const tag = typeof params?.tag === "string" ? params.tag : "";
+  const showingArchived = params?.archivados === "1";
+  const openCreateInitially = params?.nuevo === "1";
 
   const consultants = await listConsultants(user.id, {
     query: q,
     tag,
     onlyArchived: showingArchived,
-  });
+  }).catch(() => []);
 
-  const allTags = (await listUserTags(user.id)).map((t) => t.name);
+  const allTags = (await listUserTags(user.id).catch(() => [])).map((t) => t.name);
 
   return (
     <ConsultantsDirectoryClient

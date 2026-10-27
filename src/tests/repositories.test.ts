@@ -19,6 +19,7 @@ import {
   getGrimorioCardBySlug,
   listDecks,
   listGrimorioCards,
+  listSpreadTemplates,
   updateDeck,
   upsertPersonalCardEntry,
 } from "@/repositories/grimorio-repository";
@@ -35,6 +36,8 @@ import {
   exportWorkspaceBackup,
   importWorkspaceBackup,
   registerNewUser,
+  saveUserOnboardingProgress,
+  updateUserWorkspaceProfile,
 } from "@/repositories/users-repository";
 import { createDatabaseInstance } from "@/server/db";
 
@@ -623,6 +626,162 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     expect(retrieved?.id).toBe(reading.id);
     expect(retrieved?.customPositions).toHaveLength(3);
     expect(retrieved?.title).toBe("Sesión personalizada 3 cartas");
+  });
+
+  it("GT-BUG-002: preserves onboarding state when updating workspace profile in /ajustes", async () => {
+    const db = createDatabaseInstance(":memory:", { seedDemo: false });
+    const user = await registerNewUser(
+      {
+        name: "Valeria Tarot",
+        workspaceName: "Mesa Valeria",
+        email: "valeria@onboarding.org",
+        password: "clave-segura-valeria",
+      },
+      db
+    );
+
+    // Complete onboarding
+    const onboardedUser = await saveUserOnboardingProgress(
+      user.id,
+      { completed: true, currentStep: 6, experienceLevel: "intermediate" },
+      db
+    );
+    expect(onboardedUser.preferences.onboarding?.completed).toBe(true);
+
+    // Now update profile settings in /ajustes
+    const updatedUser = await updateUserWorkspaceProfile(
+      user.id,
+      {
+        name: "Valeria R.",
+        workspaceName: "Mesa Central 🔮",
+        defaultDeckId: "",
+        defaultSpreadId: "spread-celtic-cross",
+        compactTables: true,
+        autosaveReadings: false,
+      },
+      db
+    );
+
+    expect(updatedUser.name).toBe("Valeria R.");
+    expect(updatedUser.workspaceName).toBe("Mesa Central 🔮");
+    expect(updatedUser.preferences.compactTables).toBe(true);
+    expect(updatedUser.preferences.autosaveReadings).toBe(false);
+    // CRITICAL: Onboarding state MUST be preserved!
+    expect(updatedUser.preferences.onboarding?.completed).toBe(true);
+    expect(updatedUser.preferences.onboarding?.currentStep).toBe(6);
+    expect(updatedUser.preferences.onboarding?.experienceLevel).toBe("intermediate");
+  });
+
+  it("GT-BUG-004: ensures builtin spread templates are always synced and available", async () => {
+    const db = createDatabaseInstance(":memory:", { seedDemo: false });
+    const user = await registerNewUser(
+      {
+        name: "Test Spreads",
+        workspaceName: "Mesa Spreads",
+        email: "spreads@test.org",
+        password: "clave-segura-spreads",
+      },
+      db
+    );
+
+    const spreads = await listSpreadTemplates(user.id, db);
+    expect(spreads.length).toBeGreaterThanOrEqual(4);
+    const builtinIds = spreads.filter((s) => s.isBuiltin).map((s) => s.id);
+    expect(builtinIds).toContain("spread-triad-observation");
+    expect(builtinIds).toContain("spread-celtic-cross");
+  });
+
+  it("GT-BUG-003: queries and sorts consultants without column alias resolution errors", async () => {
+    const db = createDatabaseInstance(":memory:", { seedDemo: false });
+    const user = await registerNewUser(
+      {
+        name: "Consultant Tester",
+        workspaceName: "Mesa Consultantes",
+        email: "consultantes@test.org",
+        password: "clave-segura-consultantes",
+      },
+      db
+    );
+
+    // Initially empty
+    const emptyList = await listConsultants(user.id, { query: "", tag: "" }, db);
+    expect(emptyList).toEqual([]);
+
+    // Create consultant
+    const consultant = await createConsultant(
+      user.id,
+      {
+        fullName: "Sofía Navarro",
+        alias: "Sofi N.",
+        email: "sofia@ejemplo.com",
+        phone: "+54 9 11 1234-5678",
+        preferredChannel: "Presencial",
+        contextNotes: "Estudio de diseño",
+        personalNotes: "Trae cuaderno",
+        tags: ["Seguimiento", "Laboral"],
+      },
+      db
+    );
+
+    expect(consultant.id).toBeTruthy();
+    expect(consultant.displayName).toBe("Sofi N.");
+
+    // Query with filter options
+    const filtered = await listConsultants(user.id, { query: "Navarro" }, db);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.displayName).toBe("Sofi N.");
+
+    const byTag = await listConsultants(user.id, { tag: "Seguimiento" }, db);
+    expect(byTag).toHaveLength(1);
+  });
+
+  it("GT-BUG-003: lists appointments with LEFT JOIN resiliently", async () => {
+    const db = createDatabaseInstance(":memory:", { seedDemo: false });
+    const user = await registerNewUser(
+      {
+        name: "Agenda Tester",
+        workspaceName: "Mesa Agenda",
+        email: "agenda@test.org",
+        password: "clave-segura-agenda",
+      },
+      db
+    );
+
+    const consultant = await createConsultant(
+      user.id,
+      {
+        fullName: "Mateo Rossi",
+        alias: "Mateo",
+        email: "",
+        phone: "",
+        preferredChannel: "Virtual",
+        contextNotes: "",
+        personalNotes: "",
+        tags: [],
+      },
+      db
+    );
+
+    const appt = await createAppointment(
+      user.id,
+      {
+        consultantId: consultant.id,
+        title: "Sesión de Tarot Evolutivo",
+        scheduledAt: "2026-11-01T15:00:00.000Z",
+        hasSpecificDuration: true,
+        durationMinutes: 60,
+        modality: "video",
+        status: "scheduled",
+        intention: "Claridad vocacional",
+        prepNotes: "Mazo Marsella",
+      },
+      db
+    );
+
+    expect(appt.id).toBeTruthy();
+    const list = await listAppointments(user.id, { ascending: true }, db);
+    expect(list).toHaveLength(1);
+    expect(list[0]?.consultantDisplayName).toBe("Mateo");
   });
 });
 

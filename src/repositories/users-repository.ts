@@ -131,11 +131,22 @@ export async function updateUserWorkspaceProfile(
   values: WorkspaceProfileValues,
   db: AppDatabase = getDb(userId)
 ): Promise<User> {
-  const prefs = {
+  const existing = (await db
+    .prepare("SELECT * FROM users WHERE id = ?")
+    .get(userId)) as AuthUserRow | undefined;
+
+  if (!existing) {
+    throw new Error("No se encontró el perfil de usuario.");
+  }
+
+  const currentPrefs = parseUserPreferences(existing.preferences_json);
+  const updatedPrefs: UserPreferences = {
+    ...currentPrefs,
     defaultDeckId: values.defaultDeckId.trim() || null,
     defaultSpreadId: values.defaultSpreadId.trim() || null,
     compactTables: values.compactTables,
     autosaveReadings: values.autosaveReadings,
+    onboarding: currentPrefs.onboarding,
   };
 
   const res = await db
@@ -147,7 +158,7 @@ export async function updateUserWorkspaceProfile(
     .run(
       values.name.trim(),
       values.workspaceName.trim(),
-      JSON.stringify(prefs),
+      JSON.stringify(updatedPrefs),
       userId
     );
 

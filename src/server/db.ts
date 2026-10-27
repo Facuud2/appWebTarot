@@ -246,85 +246,101 @@ export const DEMO_USER_ID = "user-demo-clara";
 
 async function syncCanonicalCatalog(db: AppDatabase): Promise<void> {
   const countRow = await db.prepare("SELECT count(*) as c FROM cards_catalog").get<{ c: number }>();
-  if (countRow && Number(countRow.c) >= CANONICAL_TAROT_CARDS.length) {
-    return;
+  const shouldSyncCards = !countRow || Number(countRow.c) < CANONICAL_TAROT_CARDS.length;
+
+  if (shouldSyncCards) {
+    const upsertCard = db.prepare(`
+      INSERT INTO cards_catalog (
+        id, slug, arcana, suit, rank_number, roman_numeral,
+        canonical_name, name_en, deck_tradition, search_keywords_json,
+        traditional_upright, traditional_reversed,
+        traditional_keywords_json, archetype_note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        slug = excluded.slug,
+        arcana = excluded.arcana,
+        suit = excluded.suit,
+        rank_number = excluded.rank_number,
+        roman_numeral = excluded.roman_numeral,
+        canonical_name = excluded.canonical_name,
+        name_en = excluded.name_en,
+        deck_tradition = excluded.deck_tradition,
+        search_keywords_json = excluded.search_keywords_json,
+        traditional_upright = excluded.traditional_upright,
+        traditional_reversed = excluded.traditional_reversed,
+        traditional_keywords_json = excluded.traditional_keywords_json,
+        archetype_note = excluded.archetype_note
+    `);
+
+    db.exec("BEGIN");
+    try {
+      for (const card of CANONICAL_TAROT_CARDS) {
+        await upsertCard.run(
+          card.id,
+          card.slug,
+          card.arcana,
+          card.suit,
+          card.rankNumber,
+          card.romanNumeral,
+          card.canonicalName,
+          card.nameEn,
+          card.deckTradition,
+          JSON.stringify(card.searchKeywords),
+          card.traditionalUpright,
+          card.traditionalReversed,
+          JSON.stringify(card.traditionalKeywords),
+          card.archetypeNote
+        );
+      }
+      db.exec("COMMIT");
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
   }
-  const upsertCard = db.prepare(`
-    INSERT INTO cards_catalog (
-      id, slug, arcana, suit, rank_number, roman_numeral,
-      canonical_name, name_en, deck_tradition, search_keywords_json,
-      traditional_upright, traditional_reversed,
-      traditional_keywords_json, archetype_note
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      slug = excluded.slug,
-      arcana = excluded.arcana,
-      suit = excluded.suit,
-      rank_number = excluded.rank_number,
-      roman_numeral = excluded.roman_numeral,
-      canonical_name = excluded.canonical_name,
-      name_en = excluded.name_en,
-      deck_tradition = excluded.deck_tradition,
-      search_keywords_json = excluded.search_keywords_json,
-      traditional_upright = excluded.traditional_upright,
-      traditional_reversed = excluded.traditional_reversed,
-      traditional_keywords_json = excluded.traditional_keywords_json,
-      archetype_note = excluded.archetype_note
-  `);
 
-  const upsertSpread = db.prepare(`
-    INSERT INTO spread_templates (
-      id, user_id, name, category, description, positions_json, is_builtin, created_at
-    ) VALUES (?, NULL, ?, ?, ?, ?, 1, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      name = excluded.name,
-      category = excluded.category,
-      description = excluded.description,
-      positions_json = excluded.positions_json
-  `);
+  const spreadCountRow = await db
+    .prepare("SELECT count(*) as c FROM spread_templates WHERE is_builtin = 1")
+    .get<{ c: number }>();
+  const shouldSyncSpreads =
+    !spreadCountRow || Number(spreadCountRow.c) < BUILTIN_SPREAD_TEMPLATES.length;
 
-  db.exec("BEGIN");
-  try {
-    for (const card of CANONICAL_TAROT_CARDS) {
-      await upsertCard.run(
-        card.id,
-        card.slug,
-        card.arcana,
-        card.suit,
-        card.rankNumber,
-        card.romanNumeral,
-        card.canonicalName,
-        card.nameEn,
-        card.deckTradition,
-        JSON.stringify(card.searchKeywords),
-        card.traditionalUpright,
-        card.traditionalReversed,
-        JSON.stringify(card.traditionalKeywords),
-        card.archetypeNote
-      );
+  if (shouldSyncSpreads) {
+    const upsertSpread = db.prepare(`
+      INSERT INTO spread_templates (
+        id, user_id, name, category, description, positions_json, is_builtin, created_at
+      ) VALUES (?, NULL, ?, ?, ?, ?, 1, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        category = excluded.category,
+        description = excluded.description,
+        positions_json = excluded.positions_json
+    `);
+
+    db.exec("BEGIN");
+    try {
+      await db
+        .prepare(
+          "DELETE FROM spread_templates WHERE id = 'spread-open-table' AND is_builtin = 1"
+        )
+        .run();
+
+      const baseDate = "2026-01-01T00:00:00.000Z";
+      for (const spread of BUILTIN_SPREAD_TEMPLATES) {
+        await upsertSpread.run(
+          spread.id,
+          spread.name,
+          spread.category,
+          spread.description,
+          JSON.stringify(spread.positions),
+          baseDate
+        );
+      }
+      db.exec("COMMIT");
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
     }
-
-    await db
-      .prepare(
-        "DELETE FROM spread_templates WHERE id = 'spread-open-table' AND is_builtin = 1"
-      )
-      .run();
-
-    const baseDate = "2026-01-01T00:00:00.000Z";
-    for (const spread of BUILTIN_SPREAD_TEMPLATES) {
-      await upsertSpread.run(
-        spread.id,
-        spread.name,
-        spread.category,
-        spread.description,
-        JSON.stringify(spread.positions),
-        baseDate
-      );
-    }
-    db.exec("COMMIT");
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
   }
 }
 
@@ -1283,11 +1299,25 @@ export function resolveDatabasePath(): string {
 }
 
 export function resolveDemoDatabasePath(): string {
+  const envDemoUrl = process.env.TURSO_DEMO_DATABASE_URL?.trim();
+  if (envDemoUrl) return envDemoUrl;
+
   const envPath = process.env.GRIMORIO_DEMO_DB_PATH?.trim();
   if (envPath) return envPath;
 
   if (process.env.VITEST) {
     return ":memory:";
+  }
+
+  // En Vercel o Serverless: si Turso está configurado, usar la base de Turso
+  // con aislamiento por DEMO_USER_ID para garantizar persistencia entre Lambdas efímeras.
+  if (
+    isTursoConfigured() &&
+    (process.env.VERCEL ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.NOW_REGION)
+  ) {
+    return process.env.TURSO_DATABASE_URL!.trim();
   }
 
   if (
@@ -1425,7 +1455,12 @@ export function createDatabaseInstance(
 
   if (targetPath.startsWith("libsql://") || targetPath.startsWith("https://")) {
     url = targetPath;
-    authToken = process.env.TURSO_AUTH_TOKEN?.trim();
+    const isDedicatedDemo =
+      Boolean(process.env.TURSO_DEMO_DATABASE_URL?.trim()) &&
+      targetPath === process.env.TURSO_DEMO_DATABASE_URL?.trim();
+    authToken =
+      (isDedicatedDemo ? process.env.TURSO_DEMO_AUTH_TOKEN?.trim() : undefined) ||
+      process.env.TURSO_AUTH_TOKEN?.trim();
   } else if (targetPath === ":memory:") {
     url = "file::memory:";
   } else {

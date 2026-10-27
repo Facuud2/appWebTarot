@@ -106,18 +106,25 @@ export async function listConsultants(
   }
 
   const sql = `
-    SELECT
-      c.*,
-      (SELECT COUNT(*) FROM readings r WHERE r.consultant_id = c.id AND r.user_id = c.user_id) AS readings_count,
-      (SELECT COUNT(*) FROM appointments a WHERE a.consultant_id = c.id AND a.user_id = c.user_id AND a.status = 'scheduled' AND a.scheduled_at >= ?) AS upcoming_appointments_count,
-      (SELECT MAX(r2.performed_at) FROM readings r2 WHERE r2.consultant_id = c.id AND r2.user_id = c.user_id) AS last_reading_at
-    FROM consultants c
-    WHERE ${conditions.join(" AND ")}
-    ORDER BY COALESCE(last_reading_at, c.updated_at) DESC
+    SELECT * FROM (
+      SELECT
+        c.*,
+        (SELECT COUNT(*) FROM readings r WHERE r.consultant_id = c.id AND r.user_id = c.user_id) AS readings_count,
+        (SELECT COUNT(*) FROM appointments a WHERE a.consultant_id = c.id AND a.user_id = c.user_id AND a.status = 'scheduled' AND a.scheduled_at >= ?) AS upcoming_appointments_count,
+        (SELECT MAX(r2.performed_at) FROM readings r2 WHERE r2.consultant_id = c.id AND r2.user_id = c.user_id) AS last_reading_at
+      FROM consultants c
+      WHERE ${conditions.join(" AND ")}
+    ) sub
+    ORDER BY COALESCE(sub.last_reading_at, sub.updated_at) DESC
   `;
 
-  const rows = (await db.prepare(sql).all(...params)) as unknown as ConsultantRow[];
-  return Promise.all(rows.map((row) => mapConsultantRow(row, userId, db)));
+  try {
+    const rows = (await db.prepare(sql).all(...params)) as unknown as ConsultantRow[];
+    return await Promise.all(rows.map((row) => mapConsultantRow(row, userId, db)));
+  } catch (err) {
+    console.error("Error executing listConsultants query:", err);
+    return [];
+  }
 }
 
 export async function getConsultantById(
@@ -207,20 +214,20 @@ export async function createConsultant(
     ).run(
       id,
       userId,
-      values.fullName.trim(),
-      values.alias.trim() || null,
-      values.email.trim() || null,
-      values.phone.trim() || null,
-      values.preferredChannel.trim() || null,
-      values.contextNotes.trim(),
-      values.personalNotes.trim(),
+      values.fullName?.trim() || "",
+      values.alias?.trim() || null,
+      values.email?.trim() || null,
+      values.phone?.trim() || null,
+      values.preferredChannel?.trim() || null,
+      values.contextNotes?.trim() || "",
+      values.personalNotes?.trim() || "",
       hue,
       needsSetupInt,
       nowIso,
       nowIso
     );
 
-    await syncEntityTags(userId, "consultant", id, values.tags, "consultant", db);
+    await syncEntityTags(userId, "consultant", id, values.tags || [], "consultant", db);
     await db.exec("COMMIT");
   } catch (err) {
     await db.exec("ROLLBACK");
@@ -284,13 +291,13 @@ export async function updateConsultant(
            updated_at = ?
        WHERE user_id = ? AND id = ?`
     ).run(
-      values.fullName.trim(),
-      values.alias.trim() || null,
-      values.email.trim() || null,
-      values.phone.trim() || null,
-      values.preferredChannel.trim() || null,
-      values.contextNotes.trim(),
-      values.personalNotes.trim(),
+      values.fullName?.trim() || "",
+      values.alias?.trim() || null,
+      values.email?.trim() || null,
+      values.phone?.trim() || null,
+      values.preferredChannel?.trim() || null,
+      values.contextNotes?.trim() || "",
+      values.personalNotes?.trim() || "",
       nowIso,
       userId,
       consultantId

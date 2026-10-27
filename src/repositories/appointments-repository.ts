@@ -33,14 +33,14 @@ function mapAppointmentRow(row: AppointmentRow): Appointment {
   const displayName =
     row.consultant_alias && row.consultant_alias.trim().length > 0
       ? row.consultant_alias.trim()
-      : row.consultant_full_name;
+      : (row.consultant_full_name || "Consultante");
 
   return {
     id: row.id,
     userId: row.user_id,
     consultantId: row.consultant_id,
     consultantDisplayName: displayName,
-    consultantHue: row.consultant_hue,
+    consultantHue: typeof row.consultant_hue === "number" ? row.consultant_hue : 168,
     title: row.title,
     scheduledAt: row.scheduled_at,
     durationMinutes:
@@ -99,7 +99,7 @@ export async function listAppointments(
          c.alias AS consultant_alias,
          c.avatar_hue AS consultant_hue
        FROM appointments a
-       JOIN consultants c ON c.id = a.consultant_id
+       LEFT JOIN consultants c ON c.id = a.consultant_id
        WHERE ${conditions.join(" AND ")}
        ORDER BY a.scheduled_at ${orderDir}`
     )

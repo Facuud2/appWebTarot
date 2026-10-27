@@ -179,7 +179,10 @@ export function NewReadingForm({
         new Set()
       );
     }
-    return buildSpreadSlots(selectedSpread?.positions, [], new Set());
+    if (selectedSpread?.positions && selectedSpread.positions.length > 0) {
+      return buildSpreadSlots(selectedSpread.positions, [], new Set());
+    }
+    return buildSpreadSlots(DEFAULT_CUSTOM_POSITIONS, [], new Set());
   }, [watchedSpreadMode, watchedCustomPositions, selectedSpread]);
 
   const toggleDeckSelection = (deckId: string, checked: boolean) => {
@@ -371,7 +374,11 @@ export function NewReadingForm({
   });
 
   const selectStructureValue =
-    watchedSpreadMode === "custom" ? "custom" : watchedSpreadId;
+    watchedSpreadMode === "custom"
+      ? "custom"
+      : spreads.some((s) => s.id === watchedSpreadId)
+        ? watchedSpreadId
+        : (spreads[0]?.id ?? "custom");
 
   return (
     <form
