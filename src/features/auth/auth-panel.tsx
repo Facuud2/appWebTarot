@@ -246,7 +246,7 @@ export function AuthPanel() {
                   </div>
                   <Input
                     id="reg-workspace"
-                    placeholder="Ej. Consultorio Norte (opcional)"
+                    placeholder="Ej. Consultorio Norte, Mesa de Luna..."
                     aria-invalid={Boolean(
                       registerForm.formState.errors.workspaceName
                     )}

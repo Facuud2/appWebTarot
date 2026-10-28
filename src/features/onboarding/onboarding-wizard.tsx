@@ -58,7 +58,7 @@ export function OnboardingWizard({
     const ob = user.preferences.onboarding;
     return {
       completed: ob?.completed ?? false,
-      currentStep: ob?.currentStep ?? 1,
+      currentStep: isReviewMode ? 1 : (ob?.currentStep ?? 1),
       experienceLevel: ob?.experienceLevel ?? null,
       usagePurposes: ob?.usagePurposes ?? [],
       selectedDeckId: ob?.selectedDeckId ?? user.preferences.defaultDeckId ?? null,
@@ -85,6 +85,10 @@ export function OnboardingWizard({
   const [stepDirection, setStepDirection] = React.useState<"forward" | "backward">("forward");
   const [agendaDemoStep, setAgendaDemoStep] = React.useState<number>(1);
   const [agendaSubDirection, setAgendaSubDirection] = React.useState<"forward" | "backward">("forward");
+
+  React.useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [onboardingState.currentStep]);
 
   const handleAgendaSubStepChange = (
     nextSubStep: number,
@@ -275,7 +279,7 @@ export function OnboardingWizard({
             <div className="pt-1 flex flex-col gap-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
               <div className="flex items-center justify-between text-[11px]">
                 <div className="flex items-center gap-1.5 text-amber-500 dark:text-amber-400 font-medium">
-                  <span className="size-1.5 rounded-full bg-amber-500 dark:bg-amber-400 animate-pulse" />
+                  <span className="size-1.5 rounded-full bg-amber-500 dark:bg-amber-400" />
                   <span>
                     Etapa {agendaDemoStep} de 5:{" "}
                     <strong className="text-ink font-semibold">
@@ -302,9 +306,9 @@ export function OnboardingWizard({
                     onClick={() => handleAgendaSubStepChange(st)}
                     title={`Etapa ${st}: ${AGENDA_DEMO_STAGES[st - 1]?.label}`}
                     className={cn(
-                      "h-1.5 rounded-full transition-all duration-300 outline-none focus-visible:ring-1 focus-visible:ring-amber-500 cursor-pointer",
+                      "h-1.5 rounded-full transition-colors duration-300 outline-none focus-visible:ring-1 focus-visible:ring-amber-500 cursor-pointer",
                       st <= agendaDemoStep
-                        ? "bg-amber-500 dark:bg-amber-400 shadow-[0_0_6px_rgba(245,158,11,0.4)]"
+                        ? "bg-amber-500 dark:bg-amber-400"
                         : "bg-surface-raised border border-border/40 hover:bg-border"
                     )}
                   />

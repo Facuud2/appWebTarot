@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { AuthPanel } from "@/features/auth/auth-panel";
-import { getEnvironmentStatus } from "@/server/db";
 import { getCurrentUser } from "@/server/session";
 
 export const metadata: Metadata = {
@@ -13,8 +12,6 @@ export default async function AccesoPage() {
   if (user) {
     redirect("/");
   }
-
-  const envStatus = getEnvironmentStatus();
 
   return (
     <div className="min-h-dvh bg-ground px-4 py-10 sm:px-6 lg:px-8 flex items-center justify-center">
@@ -72,7 +69,7 @@ export default async function AccesoPage() {
             </div>
             <div>
               <dt className="font-medium text-ink">
-                Base de datos local ({envStatus.databasePath})
+                Resguardo privado y sincronización
               </dt>
               <dd className="text-muted">
                 Datos privados por cuenta con copia de seguridad y restauración en JSON.

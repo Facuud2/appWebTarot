@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { DateTimePicker } from "@/components/ui/datetime-picker";
 import { cn } from "@/lib/utils";
 import type { Consultant } from "@/types/domain";
 
@@ -54,6 +55,15 @@ export function Step4AgendaDemo({
   onContinue,
   onPrevStep,
 }: Step4AgendaDemoProps) {
+  const demoContainerRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    demoContainerRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, [demoStep]);
+
   // Formulario para crear cita real opcional (en etapa 5)
   const [showRealForm, setShowRealForm] = React.useState<boolean>(false);
   const [isSubmittingReal, setIsSubmittingReal] = React.useState<boolean>(false);
@@ -62,12 +72,12 @@ export function Step4AgendaDemo({
   const [realSelectedConsultantId, setRealSelectedConsultantId] = React.useState<string>(
     consultants[0]?.id || "new"
   );
-  const [realTitle, setRealTitle] = React.useState<string>("Lectura de inicio de ciclo");
+  const [realTitle, setRealTitle] = React.useState<string>("");
   const [realDate, setRealDate] = React.useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
     d.setHours(17, 0, 0, 0);
-    return d.toISOString().slice(0, 16);
+    return d.toISOString();
   });
   const [realModality, setRealModality] = React.useState<
     "in_person" | "video" | "audio" | "written"
@@ -160,7 +170,7 @@ export function Step4AgendaDemo({
   };
 
   return (
-    <div className="space-y-6">
+    <div ref={demoContainerRef} className="scroll-mt-24 space-y-6">
       <div className="space-y-2 text-center sm:text-left">
         <h2 className="font-serif text-2xl sm:text-3xl text-ink leading-tight">
           Organiza tus citas y ten a mano la información de cada consulta
@@ -433,13 +443,11 @@ export function Step4AgendaDemo({
                         <Label htmlFor="real-appt-date" className="text-xs">
                           Fecha y hora
                         </Label>
-                        <Input
+                        <DateTimePicker
                           id="real-appt-date"
-                          type="datetime-local"
                           value={realDate}
-                          onChange={(e) => setRealDate(e.target.value)}
-                          className="h-9 text-xs"
-                          required
+                          onChange={setRealDate}
+                          aria-label="Fecha y hora de la cita"
                         />
                       </div>
 
@@ -551,6 +559,7 @@ export function Step4AgendaDemo({
             variant="primary"
             size="sm"
             onClick={handleNextSubStep}
+            disabled={showRealForm || isSubmittingReal}
             className="gap-2 text-xs font-medium"
           >
             <span>

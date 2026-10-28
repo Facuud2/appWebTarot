@@ -349,7 +349,7 @@ export function AppShell({
       </aside>
 
       {/* Mobile & Tablet Sticky Header */}
-      <header className="sticky top-0 z-30 flex h-13 w-full items-center justify-between gap-2 border-b border-border bg-ground px-3 sm:px-4 lg:hidden">
+      <header className="standalone-safe-header sticky top-0 z-30 flex h-13 w-full items-center justify-between gap-2 border-b border-border bg-ground px-3 sm:px-4 lg:hidden">
         <div className="flex min-w-0 items-center gap-2">
           {/* Hamburger button exclusively for Tablet (md..lg); Mobile uses bottom bar */}
           <button
@@ -424,7 +424,7 @@ export function AppShell({
           key={pathname}
           id="contenido-principal"
           tabIndex={-1}
-          className="t-page-enter mx-auto w-full min-w-0 max-w-[1160px] px-4 py-5 pb-24 sm:px-6 sm:py-8 lg:px-10 lg:py-9 lg:pb-12 outline-none overflow-x-hidden"
+          className="standalone-safe-main t-page-enter mx-auto w-full min-w-0 max-w-[1160px] px-4 py-5 pb-24 sm:px-6 sm:py-8 lg:px-10 lg:py-9 lg:pb-12 outline-none overflow-x-hidden"
         >
           {children}
         </main>
@@ -433,7 +433,7 @@ export function AppShell({
       {/* Mobile Bottom Bar (<= 5 destinations with icon + label) */}
       <nav
         aria-label="Navegación móvil rápida"
-        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-ground/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)] md:hidden shadow-sm"
+        className="standalone-safe-bottom-nav fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-ground/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)] md:hidden shadow-sm"
       >
         {primaryNav.map((item) => {
           const active = isRouteActive(item.href, item.exact);

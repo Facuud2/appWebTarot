@@ -9,8 +9,14 @@ import {
   Minimize2,
   Minus,
   Plus,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  CardPreviewDialog,
+  type CardPreviewEvent,
+} from "@/components/shared/card-preview-dialog";
+import { CardArtwork, getCardShortName } from "@/components/shared/tarot-card-plate";
 import { cn } from "@/lib/utils";
 import type {
   CanonicalCard,
@@ -26,6 +32,11 @@ export interface SpreadMapSlot {
   coordX: number;
   coordY: number;
   hasEvent?: boolean;
+  observationNotes?: string;
+  contextualInterpretation?: string;
+  personalTakeaway?: string;
+  events?: CardPreviewEvent[];
+  staticImageUrl?: string | null;
 }
 
 interface SpreadMapProps {
@@ -37,6 +48,11 @@ interface SpreadMapProps {
     positionIndex: number,
     coordX: number,
     coordY: number
+  ) => void;
+  onPreviewNotesChange?: (
+    positionIndex: number,
+    field: "observationNotes" | "contextualInterpretation" | "personalTakeaway",
+    value: string
   ) => void;
   defaultHeight?: number;
   children?: React.ReactNode;
@@ -60,6 +76,11 @@ export function buildSpreadSlots(
     orientation: CardOrientation;
     coordX?: number;
     coordY?: number;
+    observationNotes?: string;
+    contextualInterpretation?: string;
+    personalTakeaway?: string;
+    events?: CardPreviewEvent[];
+    staticImageUrl?: string | null;
   }>,
   eventPositions: Set<number>
 ): SpreadMapSlot[] {
@@ -96,6 +117,11 @@ export function buildSpreadSlots(
       coordX: cardEntry?.coordX ?? tpl?.coordX ?? fallbackX,
       coordY: cardEntry?.coordY ?? tpl?.coordY ?? fallbackY,
       hasEvent: eventPositions.has(idx),
+      observationNotes: cardEntry?.observationNotes,
+      contextualInterpretation: cardEntry?.contextualInterpretation,
+      personalTakeaway: cardEntry?.personalTakeaway,
+      events: cardEntry?.events,
+      staticImageUrl: cardEntry?.staticImageUrl,
     });
   }
 
@@ -108,6 +134,7 @@ export function SpreadMap({
   onSelectPosition,
   editable = false,
   onMovePosition,
+  onPreviewNotesChange,
   defaultHeight,
   children,
 }: SpreadMapProps) {
@@ -121,6 +148,7 @@ export function SpreadMap({
   const [mobileMoveEnabled, setMobileMoveEnabled] = React.useState(false);
   const [draggingIndex, setDraggingIndex] = React.useState<number | null>(null);
   const [isResizingPanel, setIsResizingPanel] = React.useState(false);
+  const [previewPositionIndex, setPreviewPositionIndex] = React.useState<number | null>(null);
 
   const pointerStartRef = React.useRef<{
     x: number;
@@ -131,6 +159,32 @@ export function SpreadMap({
     startY: number;
     startHeight: number;
   } | null>(null);
+
+  React.useEffect(() => {
+    if (draggingIndex === null && !isResizingPanel) {
+      return undefined;
+    }
+
+    const originalOverflow = document.body.style.overflow;
+    const originalTouchAction = document.body.style.touchAction;
+    document.body.style.overflow = "hidden";
+    document.body.style.touchAction = "none";
+
+    const preventDefaultTouch = (e: TouchEvent) => {
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener("touchmove", preventDefaultTouch, {
+      passive: false,
+    });
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      document.body.style.touchAction = originalTouchAction;
+      window.removeEventListener("touchmove", preventDefaultTouch);
+    };
+  }, [draggingIndex, isResizingPanel]);
 
   if (slots.length === 0) {
     return (
@@ -178,32 +232,8 @@ export function SpreadMap({
 
   const activeSlot =
     slots.find((s) => s.positionIndex === activePositionIndex) ?? null;
-
-  React.useEffect(() => {
-    if (draggingIndex === null && !isResizingPanel) {
-      return undefined;
-    }
-
-    const originalOverflow = document.body.style.overflow;
-    const originalTouchAction = document.body.style.touchAction;
-    document.body.style.overflow = "hidden";
-    document.body.style.touchAction = "none";
-
-    const preventDefaultTouch = (e: TouchEvent) => {
-      if (e.cancelable) {
-        e.preventDefault();
-      }
-    };
-
-    window.addEventListener("touchmove", preventDefaultTouch, {
-      passive: false,
-    });
-    return () => {
-      document.body.style.overflow = originalOverflow;
-      document.body.style.touchAction = originalTouchAction;
-      window.removeEventListener("touchmove", preventDefaultTouch);
-    };
-  }, [draggingIndex, isResizingPanel]);
+  const previewSlot =
+    slots.find((s) => s.positionIndex === previewPositionIndex) ?? null;
 
   const handleResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
@@ -470,6 +500,9 @@ export function SpreadMap({
             }
             pointerStartRef.current = null;
             onSelectPosition?.(slot.positionIndex);
+            if (slot.card && !mobileMoveEnabled) {
+              setPreviewPositionIndex(slot.positionIndex);
+            }
           };
 
           return (
@@ -488,17 +521,17 @@ export function SpreadMap({
               aria-pressed={isSelected}
               aria-label={`Carta ${slot.positionIndex}: ${slot.positionTitle}${slot.card ? `, ${slot.card.canonicalName}` : ", sin carta"}`}
               className={cn(
-                "group absolute -translate-x-1/2 -translate-y-1/2 flex flex-col justify-between rounded-xl border text-center shadow-sm transition-[border-color,box-shadow,transform]",
+                "group absolute -translate-x-1/2 -translate-y-1/2 flex flex-col overflow-hidden rounded-xl border text-center transition-[border-color,transform]",
                 cardSizeClass,
                 editable && "cursor-grab touch-none",
                 isDragging &&
-                  "z-30 scale-105 border-accent ring-2 ring-accent/40 shadow-md cursor-grabbing touch-none",
+                  "z-30 scale-105 border-accent ring-2 ring-accent/40 cursor-grabbing touch-none",
                 slot.card
                   ? "bg-ground border-control text-ink hover:border-ink/60"
                   : "bg-ground/95 border-border text-muted hover:border-control hover:text-ink",
                 isSelected &&
                   !isDragging &&
-                  "z-20 border-accent ring-2 ring-accent shadow-md scale-[1.06] ring-offset-1 ring-offset-ground",
+                  "z-20 border-accent ring-2 ring-accent scale-[1.06] ring-offset-1 ring-offset-ground",
                 isReversed && slot.card && "border-b-2 border-b-warning"
               )}
             >
@@ -511,67 +544,58 @@ export function SpreadMap({
                 </span>
               ) : null}
 
-              {/* Subtle inner Tarot card frame */}
-              <span
-                aria-hidden="true"
-                className={cn(
-                  "pointer-events-none absolute inset-[3px] rounded-[9px] border",
-                  slot.card
-                    ? "border-border/70"
-                    : "border-dashed border-border/80"
-                )}
-              />
-
-              {/* Top Index & Event Indicator */}
-              <div className="relative z-10 flex w-full items-center justify-between gap-0.5 text-[10px] leading-none num-tabular">
-                <span
-                  className={cn(
-                    "inline-flex min-w-4 items-center justify-center rounded-full px-1 py-0.5 text-[9px] font-semibold",
-                    isSelected
-                      ? "bg-accent text-on-primary"
-                      : "bg-surface text-ink"
-                  )}
-                >
-                  {slot.positionIndex}
-                </span>
-                {slot.hasEvent ? (
-                  <span
-                    className="size-1.5 rounded-full bg-accent shrink-0"
-                    title="Evento del mazo asociado"
+              <div className="relative min-h-0 flex-[72] w-full overflow-hidden bg-ground">
+                {slot.card ? (
+                  <CardArtwork
+                    card={slot.card}
+                    orientation={slot.orientation}
+                    staticFallbackUrl={slot.staticImageUrl}
                   />
-                ) : slot.card?.romanNumeral ? (
-                  <span className="text-[9px] text-muted truncate">
-                    {slot.card.romanNumeral}
+                ) : (
+                  <div className="flex h-full items-center justify-center px-1 text-[9px] text-muted">
+                    Sin carta
+                  </div>
+                )}
+                <div className="pointer-events-none absolute inset-x-1 top-1 z-10 flex items-center justify-between gap-0.5 text-[10px] leading-none num-tabular">
+                  <span
+                    className={cn(
+                      "inline-flex min-w-4 items-center justify-center rounded-full px-1 py-0.5 text-[9px] font-semibold",
+                      isSelected
+                        ? "bg-accent text-on-primary"
+                        : "bg-surface text-ink"
+                    )}
+                  >
+                    {slot.positionIndex}
                   </span>
-                ) : null}
+                  {slot.hasEvent ? (
+                    <Zap
+                      className="size-3 shrink-0 rounded bg-ground/90 p-px text-accent"
+                      aria-label="Evento del mazo asociado"
+                    />
+                  ) : slot.card?.romanNumeral ? (
+                    <span className="rounded bg-ground/90 px-0.5 text-[9px] text-muted truncate">
+                      {slot.card.romanNumeral}
+                    </span>
+                  ) : null}
+                </div>
               </div>
 
-              {/* Center Vertical Card Label */}
-              <div className="relative z-10 my-auto flex w-full items-center justify-center px-0.5">
+              <div className="relative z-10 flex min-h-0 flex-[28] w-full items-center justify-center gap-0.5 px-1 py-0.5">
                 <p
                   className={cn(
-                    "line-clamp-3 break-words leading-[1.15]",
+                    "line-clamp-2 min-w-0 break-words leading-[1.05]",
                     slot.card
                       ? "font-serif text-[10px] sm:text-[11px] font-medium text-ink"
                       : "text-[9.5px] sm:text-[10px] font-medium text-ink/80"
                   )}
                 >
-                  {slot.card ? slot.card.canonicalName : slot.positionTitle}
+                  {slot.card
+                    ? getCardShortName(slot.card.canonicalName)
+                    : slot.positionTitle}
                 </p>
-              </div>
-
-              {/* Bottom Micro Status (only shown when reversed so card stays clean) */}
-              <div className="relative z-10 flex min-h-[10px] w-full items-center justify-center">
                 {slot.card && isReversed ? (
-                  <span className="truncate text-[8.5px] font-medium leading-none text-warning">
-                    Invertida
-                  </span>
-                ) : (
-                  <span
-                    aria-hidden="true"
-                    className="h-0.5 w-3 rounded-full bg-border"
-                  />
-                )}
+                  <span className="shrink-0 text-[8px] font-medium leading-none text-warning">Inv.</span>
+                ) : null}
               </div>
             </button>
           );
@@ -603,6 +627,16 @@ export function SpreadMap({
           {children}
         </div>
       ) : null}
+      <CardPreviewDialog
+        open={previewPositionIndex !== null}
+        onOpenChange={(open) => {
+          if (!open) setPreviewPositionIndex(null);
+        }}
+        slot={previewSlot}
+        cards={slots.filter((slot) => slot.card)}
+        onNavigate={setPreviewPositionIndex}
+        onNotesChange={onPreviewNotesChange}
+      />
     </div>
   );
 }

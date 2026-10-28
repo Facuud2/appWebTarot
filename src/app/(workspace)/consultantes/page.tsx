@@ -30,7 +30,9 @@ export default async function ConsultantesPage({
     onlyArchived: showingArchived,
   }).catch(() => []);
 
-  const allTags = (await listUserTags(user.id).catch(() => [])).map((t) => t.name);
+  const allTags = (await listUserTags(user.id, "consultant").catch(() => [])).map(
+    (tag) => tag.name
+  );
 
   return (
     <ConsultantsDirectoryClient

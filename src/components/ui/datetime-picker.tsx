@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { format, parse, isValid } from "date-fns";
-import { es } from "date-fns/locale/es";
+import { format, isValid } from "date-fns";
+import { es } from "date-fns/locale";
 import { Calendar as CalendarIcon, Clock, Check } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -11,7 +11,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, formatSessionDateTime } from "@/lib/utils";
 
 interface DateTimePickerProps {
   value?: string;
@@ -25,25 +25,32 @@ interface DateTimePickerProps {
 }
 
 const COMMON_TIMES = ["09:00", "11:00", "15:00", "17:00", "18:00", "20:00"];
-
 function parseValueToDate(val: string | undefined): Date | null {
   if (!val || !val.trim()) return null;
-  if (val.length === 16) {
-    const d = parse(val, "yyyy-MM-dd'T'HH:mm", new Date());
-    if (isValid(d)) return d;
+  if (val.length === 16 && val.includes("T")) {
+    const [datePart, timePart] = val.split("T");
+    const [y, m, d] = datePart.split("-").map(Number);
+    const [h, min] = timePart.split(":").map(Number);
+    if (!Number.isNaN(y) && !Number.isNaN(m) && !Number.isNaN(d) && !Number.isNaN(h) && !Number.isNaN(min)) {
+      const local = new Date(y, m - 1, d, h, min, 0, 0);
+      if (isValid(local)) return local;
+    }
   }
   const d = new Date(val);
   return isValid(d) ? d : null;
 }
 
-function formatDateToValue(date: Date, hours: number, minutes: number): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const y = date.getFullYear();
-  const m = pad(date.getMonth() + 1);
-  const d = pad(date.getDate());
-  const hh = pad(hours);
-  const mm = pad(minutes);
-  return `${y}-${m}-${d}T${hh}:${mm}`;
+function formatLocalDateTimeToIso(date: Date, hours: number, minutes: number): string {
+  const localDate = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+    hours,
+    minutes,
+    0,
+    0
+  );
+  return localDate.toISOString();
 }
 
 export function DateTimePicker({
@@ -57,6 +64,26 @@ export function DateTimePicker({
   suppressHydrationWarning = true,
 }: DateTimePickerProps) {
   const [open, setOpen] = React.useState(false);
+  const popoverContentRef = React.useRef<HTMLDivElement | null>(null);
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) return;
+
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && activeElement !== document.body) {
+      activeElement.blur();
+    }
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        popoverContentRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+        });
+      });
+    });
+  };
 
   const parsedDate = React.useMemo(() => parseValueToDate(value), [value]);
   const activeDay = parsedDate ?? undefined;
@@ -65,24 +92,18 @@ export function DateTimePicker({
 
   const displayLabel = React.useMemo(() => {
     if (!parsedDate) return placeholder;
-    try {
-      return format(parsedDate, "d 'de' MMMM 'de' yyyy, HH:mm", {
-        locale: es,
-      });
-    } catch {
-      return placeholder;
-    }
+    return formatSessionDateTime(parsedDate) || placeholder;
   }, [parsedDate, placeholder]);
 
   const handleSelectDay = (day: Date | undefined) => {
     if (!day) return;
-    const formatted = formatDateToValue(day, activeHour, activeMinute);
+    const formatted = formatLocalDateTimeToIso(day, activeHour, activeMinute);
     onChange(formatted);
   };
 
   const handleApplyTime = (hour: number, minute: number) => {
     const baseDay = activeDay || new Date();
-    const formatted = formatDateToValue(baseDay, hour, minute);
+    const formatted = formatLocalDateTimeToIso(baseDay, hour, minute);
     onChange(formatted);
   };
 
@@ -95,14 +116,13 @@ export function DateTimePicker({
 
   const handleSetNow = () => {
     const now = new Date();
-    const formatted = formatDateToValue(now, now.getHours(), now.getMinutes());
-    onChange(formatted);
+    onChange(now.toISOString());
     setOpen(false);
   };
 
   return (
     <div className={cn("relative inline-flex items-center w-full", className)}>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -129,9 +149,14 @@ export function DateTimePicker({
         </PopoverTrigger>
 
         <PopoverContent
-          className="w-auto p-4 bg-ground border border-border shadow-lg rounded-xl z-50 space-y-4 max-w-[calc(100vw-2rem)]"
+          ref={popoverContentRef}
+          className="w-auto max-w-[calc(100vw-2rem)] space-y-4 overflow-y-auto overscroll-contain rounded-xl border border-border bg-ground p-4 z-50"
           align="start"
           sideOffset={6}
+          style={{
+            maxHeight: "min(85dvh, var(--radix-popper-available-height))",
+            WebkitOverflowScrolling: "touch",
+          }}
         >
           {/* Calendar Picker (react-day-picker v9) */}
           <div className="space-y-2">

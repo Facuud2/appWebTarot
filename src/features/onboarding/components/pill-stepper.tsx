@@ -16,8 +16,8 @@ export function PillStepper({
   className,
 }: PillStepperProps) {
   const steps: Array<{ id: 1 | 2; label: string; title: string }> = [
-    { id: 1, label: "1/2", title: "Para quién es la lectura" },
-    { id: 2, label: "2/2", title: "Mesa de cartas y estructura" },
+    { id: 1, label: "Destinatario", title: "Para quién es la lectura" },
+    { id: 2, label: "Mesa", title: "Mesa de cartas y estructura" },
   ];
 
   return (

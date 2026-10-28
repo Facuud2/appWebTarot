@@ -28,7 +28,7 @@ import {
   APPOINTMENT_MODALITY_LABELS,
   APPOINTMENT_STATUS_LABELS,
 } from "@/lib/constants";
-import { toDatetimeLocalValue } from "@/lib/utils";
+import { toIsoUtcString } from "@/lib/utils";
 import {
   appointmentFormSchema,
   type AppointmentFormValues,
@@ -73,9 +73,7 @@ export function AppointmentFormDialog({
       consultantId: resolvedDefaultConsultant,
       quickNewConsultant: "",
       title: appointment?.title ?? "",
-      scheduledAt: appointment?.scheduledAt
-        ? toDatetimeLocalValue(appointment.scheduledAt)
-        : "",
+      scheduledAt: appointment?.scheduledAt ?? new Date().toISOString(),
       hasSpecificDuration: appointment
         ? appointment.durationMinutes !== null
         : false,
@@ -122,7 +120,7 @@ export function AppointmentFormDialog({
           (initialNew ? "__new__" : ""),
         quickNewConsultant: "",
         title: appointment?.title ?? "",
-        scheduledAt: toDatetimeLocalValue(appointment?.scheduledAt),
+        scheduledAt: appointment?.scheduledAt ?? new Date().toISOString(),
         hasSpecificDuration: appointment
           ? appointment.durationMinutes !== null
           : false,
@@ -144,6 +142,7 @@ export function AppointmentFormDialog({
 
     const normalized: AppointmentFormValues = {
       ...values,
+      scheduledAt: toIsoUtcString(values.scheduledAt),
       quickNewConsultant: isRegisteringNewConsultant
         ? inlineConsultant
         : undefined,

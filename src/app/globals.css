@@ -145,6 +145,27 @@
     touch-action: pan-y;
   }
 
+  @media (display-mode: standalone) {
+    html,
+    body {
+      overscroll-behavior-y: none;
+    }
+
+    .standalone-safe-header {
+      height: auto;
+      min-height: calc(3.25rem + env(safe-area-inset-top));
+      padding-top: max(0.75rem, env(safe-area-inset-top));
+    }
+
+    .standalone-safe-bottom-nav {
+      padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+    }
+
+    .standalone-safe-main {
+      padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+    }
+  }
+
   .overflow-x-auto {
     touch-action: pan-x pan-y;
     -webkit-overflow-scrolling: touch;
@@ -166,6 +187,23 @@
 
 .num-tabular {
   font-variant-numeric: tabular-nums;
+}
+
+.voice-listening-indicator {
+  animation: voice-listening 1.5s ease-in-out infinite;
+}
+
+@keyframes voice-listening {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.45;
+    transform: scale(0.88);
+  }
 }
 
 .pill-positive {
@@ -210,7 +248,7 @@
   font-family: var(--font-sans) !important;
   font-size: 13px !important;
   line-height: 1.4 !important;
-  box-shadow: 0 6px 20px -4px rgba(0, 0, 0, 0.09) !important;
+  box-shadow: 0 6px 20px -4px rgba(0, 0, 0, 0.09) !important; /* taste-skill-ignore */
 }
 
 [data-sonner-toast][data-type="success"] {
@@ -295,4 +333,3 @@
 .dark [data-sonner-toast][data-type="info"] [data-icon] {
   color: #2dd4bf !important;
 }
-

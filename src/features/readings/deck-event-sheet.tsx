@@ -20,8 +20,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TagInput } from "@/components/ui/tag-input";
 import { Textarea } from "@/components/ui/textarea";
+import { VoiceMicButton } from "@/components/ui/voice-mic-button";
 import { DECK_PHASE_LABELS } from "@/lib/constants";
 import { cn, toDatetimeLocalValue } from "@/lib/utils";
+import { appendVoiceTranscript } from "@/lib/voice-normalizer";
 import {
   deckEventFormSchema,
   type DeckEventFormValues,
@@ -285,9 +287,24 @@ export function DeckEventSheet({
 
           {/* Description of what happened */}
           <div className="space-y-1.5">
-            <Label htmlFor="event-observation">
-              1. Qué ocurrió en la mesa
-            </Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="event-observation">
+                1. Qué ocurrió en la mesa
+              </Label>
+              <VoiceMicButton
+                fieldLabel="descripción del evento"
+                onTranscript={(chunk) =>
+                  form.setValue(
+                    "observationDescription",
+                    appendVoiceTranscript(
+                      form.getValues("observationDescription"),
+                      chunk
+                    ),
+                    { shouldDirty: true, shouldValidate: true }
+                  )
+                }
+              />
+            </div>
             <Textarea
               id="event-observation"
               rows={2}
@@ -303,10 +320,25 @@ export function DeckEventSheet({
 
           {/* Personal interpretation */}
           <div className="space-y-1.5">
-            <Label htmlFor="event-interpretation">
-              2. Significado o interpretación en la sesión{" "}
-              <span className="text-muted font-normal">(opcional)</span>
-            </Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label htmlFor="event-interpretation">
+                2. Significado o interpretación en la sesión{" "}
+                <span className="text-muted font-normal">(opcional)</span>
+              </Label>
+              <VoiceMicButton
+                fieldLabel="interpretación del evento"
+                onTranscript={(chunk) =>
+                  form.setValue(
+                    "personalInterpretation",
+                    appendVoiceTranscript(
+                      form.getValues("personalInterpretation"),
+                      chunk
+                    ),
+                    { shouldDirty: true }
+                  )
+                }
+              />
+            </div>
             <Textarea
               id="event-interpretation"
               rows={2}

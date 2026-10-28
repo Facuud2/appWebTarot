@@ -1,15 +1,12 @@
 import * as React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { NewReadingForm } from "@/features/readings/new-reading-form";
+import { TagInput } from "@/components/ui/tag-input";
 import {
-  BUILTIN_DECKS,
   BUILTIN_SPREAD_TEMPLATES,
   CANONICAL_TAROT_CARDS,
-  LIVING_WHEEL_CARDS,
-  RWS_CARDS,
-  THOTH_CARDS,
 } from "@/lib/tarot-catalog";
 import type { Deck, SpreadTemplate } from "@/types/domain";
 
@@ -288,6 +285,172 @@ describe("3-step New Reading Wizard (Lectura Nueva direct flow)", () => {
     expect(screen.queryByText(/Aries · Signo de Fuego/i)).not.toBeInTheDocument();
   });
 
+  it("searches cards without diacritics and offers quick suit filters", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <NewReadingForm
+        consultants={[]}
+        decks={sampleDecks}
+        spreads={sampleSpreads}
+        cardsCatalog={CANONICAL_TAROT_CARDS}
+        defaultDeckId="deck-living-wheel"
+        defaultSpreadId="spread-triad-observation"
+      />
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /Siguiente: Indicar cartas y notas/i,
+      })
+    );
+    const picker = screen.getAllByRole("combobox", {
+      name: /Carta colocada en esta posición/i,
+    })[0];
+    await user.click(picker);
+
+    const search = screen.getByRole("searchbox", {
+      name: /Buscar carta por nombre/i,
+    });
+    expect(search).toHaveAttribute("type", "search");
+    expect(search).toHaveAttribute("autocomplete", "off");
+    expect(search).toHaveAttribute("autocorrect", "off");
+    await user.type(search, "geminis");
+
+    expect(
+      screen.getByRole("option", { name: /Géminis \(Los Gemelos\)/i })
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Mayores" }));
+    expect(
+      screen.queryByRole("option", { name: /Géminis \(Los Gemelos\)/i })
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Todos" }));
+    const geminis = screen.getByRole("option", {
+      name: /Géminis \(Los Gemelos\)/i,
+    });
+    expect(geminis).toBeInTheDocument();
+    await user.click(geminis);
+    expect(picker).toHaveTextContent(/Géminis \(Los Gemelos\)/i);
+  });
+
+  it("confirms the quick consultant name and keeps it selected when returning from Step 2", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <NewReadingForm
+        consultants={[]}
+        decks={sampleDecks}
+        spreads={sampleSpreads}
+        cardsCatalog={CANONICAL_TAROT_CARDS}
+        defaultDeckId="deck-rws"
+        defaultSpreadId="spread-triad-observation"
+      />
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: /Nuevo consultante/i })
+    );
+    await user.type(
+      screen.getByLabelText(/Nombre o alias del nuevo consultante/i),
+      "Sofía Méndez"
+    );
+    await user.click(screen.getByRole("button", { name: "Añadir" }));
+
+    expect(
+      screen.getByText("Se registrará a Sofía Méndez al iniciar la lectura.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", {
+        name: "Nuevo consultante: Sofía Méndez",
+      })
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /Siguiente: Indicar cartas y notas/i,
+      })
+    );
+    await user.click(
+      screen.getByRole("button", { name: /Volver a Configuración/i })
+    );
+    expect(
+      screen.getByLabelText(/Nombre o alias del nuevo consultante/i)
+    ).toHaveValue("Sofía Méndez");
+    expect(
+      screen.getByText("Se registrará a Sofía Méndez al iniciar la lectura.")
+    ).toBeInTheDocument();
+  });
+
+  it("applies a quick date-picker time immediately and closes on acceptance", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <NewReadingForm
+        consultants={[]}
+        decks={sampleDecks}
+        spreads={sampleSpreads}
+        cardsCatalog={CANONICAL_TAROT_CARDS}
+        defaultDeckId="deck-rws"
+        defaultSpreadId="spread-triad-observation"
+      />
+    );
+
+    const dateTime = screen.getByRole("button", {
+      name: /\d{1,2}.*\d{2}:\d{2}/i,
+    });
+    await user.click(dateTime);
+    expect(screen.getByText("Selecciona la fecha")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "17:00" }));
+    expect(dateTime).toHaveTextContent("17:00");
+    await user.click(screen.getByRole("button", { name: "Aceptar" }));
+    expect(screen.queryByText("Selecciona la fecha")).not.toBeInTheDocument();
+  });
+
+  it("balances six custom reading cards into two rows on the spread map", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <NewReadingForm
+        consultants={[]}
+        decks={sampleDecks}
+        spreads={sampleSpreads}
+        cardsCatalog={CANONICAL_TAROT_CARDS}
+        defaultDeckId="deck-rws"
+        defaultSpreadId="spread-triad-observation"
+      />
+    );
+
+    await user.selectOptions(
+      screen.getByLabelText(/Estructura de cartas a utilizar/i),
+      "custom"
+    );
+    for (let index = 0; index < 3; index += 1) {
+      await user.click(screen.getByRole("button", { name: "Añadir carta" }));
+    }
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /Siguiente: Indicar cartas y notas/i,
+      })
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: /Siguiente: Acomodar cartas en la mesa/i,
+      })
+    );
+
+    const cards = within(
+      screen.getByRole("region", {
+        name: /Ubicación de las cartas en la mesa/i,
+      })
+    ).getAllByRole("button");
+    expect(cards).toHaveLength(6);
+    expect(cards[0]).toHaveStyle({ top: "28%" });
+    expect(cards[2]).toHaveStyle({ top: "28%" });
+    expect(cards[3]).toHaveStyle({ top: "72%" });
+    expect(cards[5]).toHaveStyle({ top: "72%" });
+  });
+
   it("supports saving a reading as draft at any time with the 'Guardar borrador' button", async () => {
     const user = userEvent.setup();
 
@@ -356,5 +519,65 @@ describe("3-step New Reading Wizard (Lectura Nueva direct flow)", () => {
 
     // The new deck is now in the list of decks
     expect(screen.getByText("Tarot Místico Botánico")).toBeInTheDocument();
+  });
+
+  it("keeps custom spread names and position placeholders ready for typing", async () => {
+    const user = userEvent.setup();
+    const spreadsWithDuplicateCounts = sampleSpreads.map((spread) => ({
+      ...spread,
+      name: `${spread.name} (${spread.positions.length} cartas)`,
+    }));
+
+    render(
+      <NewReadingForm
+        consultants={[]}
+        decks={sampleDecks}
+        spreads={spreadsWithDuplicateCounts}
+        cardsCatalog={CANONICAL_TAROT_CARDS}
+        defaultDeckId="deck-rws"
+        defaultSpreadId="spread-triad-observation"
+      />
+    );
+
+    const spreadSelect = screen.getByLabelText(
+      /Estructura de cartas a utilizar/i
+    );
+    const options = within(spreadSelect).getAllByRole("option");
+    for (const option of options) {
+      expect(option.textContent).not.toMatch(
+        /\(\d+ cartas\)\s*\(\d+ cartas\)/i
+      );
+    }
+
+    await user.selectOptions(spreadSelect, "custom");
+    expect(
+      screen.getByLabelText(/Nombre de la estructura personalizada/i)
+    ).toHaveValue("");
+    expect(screen.getByPlaceholderText(/Tirada de espejo/i)).toBeInTheDocument();
+
+    for (let index = 0; index < 3; index += 1) {
+      await user.click(screen.getByRole("button", { name: "Añadir carta" }));
+    }
+    for (let index = 1; index <= 6; index += 1) {
+      expect(
+        screen.getByPlaceholderText(`Carta ${index}`)
+      ).toBeInTheDocument();
+    }
+  });
+
+  it("adds reading tags with Enter or comma and keeps focus in the input", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    render(<TagInput value={[]} onChange={onChange} />);
+    const input = screen.getByRole("textbox");
+
+    await user.type(input, "trabajo{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith(["trabajo"]);
+    expect(input).toHaveFocus();
+
+    await user.type(input, "vínculos,");
+    expect(onChange).toHaveBeenLastCalledWith(["vínculos"]);
+    expect(input).toHaveFocus();
   });
 });

@@ -256,15 +256,26 @@ export function AgendaViewClient({
             {formatDateTimeEs(appt.scheduledAt)}
           </time>
 
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-col gap-2">
+            <div className="flex min-w-0 gap-1.5">
             {appt.linkedReadingId ? (
-              <Button asChild size="sm" variant="secondary">
+              <Button
+                asChild
+                size="sm"
+                variant="secondary"
+                className="min-w-0 flex-1 px-2 text-[11px] leading-tight whitespace-normal"
+              >
                 <Link href={`/lecturas/${appt.linkedReadingId}`}>
                   Abrir lectura vinculada
                 </Link>
               </Button>
             ) : appt.status !== "cancelled" ? (
-              <Button asChild size="sm" variant="primary">
+              <Button
+                asChild
+                size="sm"
+                variant="primary"
+                className="min-w-0 flex-1 px-2 text-[11px] leading-tight whitespace-normal"
+              >
                 <Link
                   href={`/lecturas/nueva?consultantId=${encodeURIComponent(appt.consultantId)}&appointmentId=${encodeURIComponent(appt.id)}&intention=${encodeURIComponent(appt.intention || appt.title)}`}
                 >
@@ -278,6 +289,7 @@ export function AgendaViewClient({
                 type="button"
                 size="sm"
                 variant="tonal"
+                className="min-w-0 flex-1 px-2 text-[11px] leading-tight"
                 disabled={isPending}
                 onClick={() => handleStatusChange(appt.id, "completed")}
                 title="Marcar sesión como realizada"
@@ -286,59 +298,62 @@ export function AgendaViewClient({
                 <span>Realizada</span>
               </Button>
             ) : null}
+            </div>
 
-            {appt.status === "scheduled" ? (
-              <button
-                type="button"
-                disabled={isPending}
-                onClick={() => handleStatusChange(appt.id, "cancelled")}
-                aria-label="Cancelar sesión"
-                title="Marcar como cancelada"
-                className="rounded-lg border border-border bg-raised p-2 text-muted hover:text-warning"
-              >
-                <XCircle className="size-4" aria-hidden="true" />
-              </button>
-            ) : null}
-
-            <button
-              type="button"
-              onClick={() => {
-                setEditingAppt(appt);
-                setDialogOpen(true);
-              }}
-              aria-label={`Editar sesión ${appt.title}`}
-              className="rounded-lg border border-border bg-raised p-2 text-muted hover:text-ink"
-            >
-              <Edit3 className="size-4" aria-hidden="true" />
-            </button>
-
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
+            <div className="flex items-center justify-end gap-1.5">
+              {appt.status === "scheduled" ? (
                 <button
                   type="button"
-                  aria-label={`Eliminar sesión ${appt.title}`}
-                  className="rounded-lg border border-border bg-raised p-2 text-muted hover:text-negative"
+                  disabled={isPending}
+                  onClick={() => handleStatusChange(appt.id, "cancelled")}
+                  aria-label="Cancelar sesión"
+                  title="Marcar como cancelada"
+                  className="inline-flex size-11 items-center justify-center rounded-lg border border-border bg-raised text-muted hover:text-warning disabled:opacity-50"
                 >
-                  <Trash2 className="size-4" aria-hidden="true" />
+                  <XCircle className="size-4" aria-hidden="true" />
                 </button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    ¿Eliminar esta cita de tu agenda?
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Se eliminará la cita «{appt.title}» con {appt.consultantDisplayName}. Si ya tenía una lectura registrada, el registro de esa lectura no se borrará.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                  <AlertDialogAction onClick={() => handleDelete(appt.id)}>
-                    Eliminar cita
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingAppt(appt);
+                  setDialogOpen(true);
+                }}
+                aria-label={`Editar sesión ${appt.title}`}
+                className="inline-flex size-11 items-center justify-center rounded-lg border border-border bg-raised text-muted hover:text-ink"
+              >
+                <Edit3 className="size-4" aria-hidden="true" />
+              </button>
+
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`Eliminar sesión ${appt.title}`}
+                    className="inline-flex size-11 items-center justify-center rounded-lg border border-border bg-raised text-muted hover:text-negative"
+                  >
+                    <Trash2 className="size-4" aria-hidden="true" />
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      ¿Eliminar esta cita de tu agenda?
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Se eliminará la cita «{appt.title}» con {appt.consultantDisplayName}. Si ya tenía una lectura registrada, el registro de esa lectura no se borrará.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => handleDelete(appt.id)}>
+                      Eliminar cita
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           </div>
         </div>
       </article>

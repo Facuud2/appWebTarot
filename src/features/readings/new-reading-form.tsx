@@ -63,12 +63,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TagInput } from "@/components/ui/tag-input";
 import { Textarea } from "@/components/ui/textarea";
+import { VoiceMicButton } from "@/components/ui/voice-mic-button";
 import {
   DECK_PHASE_LABELS,
   DECK_TRADITION_LABELS,
   PHENOMENON_LABELS,
 } from "@/lib/constants";
-import { cn, toDatetimeLocalValue } from "@/lib/utils";
+import {
+  cn,
+  formatSessionDateTime,
+  toIsoUtcString,
+} from "@/lib/utils";
+import { appendVoiceTranscript } from "@/lib/voice-normalizer";
 import type { ReadingCardInput } from "@/schemas/domain";
 import type {
   Appointment,
@@ -77,7 +83,6 @@ import type {
   Consultant,
   Deck,
   DeckPhase,
-  DeckTradition,
   PhenomenonType,
   SpreadPositionDefinition,
   SpreadTemplate,
@@ -100,21 +105,21 @@ interface NewReadingFormProps {
 const DEFAULT_CUSTOM_POSITIONS: SpreadPositionDefinition[] = [
   {
     positionIndex: 1,
-    title: "Carta 1",
+    title: "",
     prompt: "Situación actual o punto de partida",
     coordX: 25,
     coordY: 50,
   },
   {
     positionIndex: 2,
-    title: "Carta 2",
+    title: "",
     prompt: "Desarrollo o aspecto central",
     coordX: 50,
     coordY: 50,
   },
   {
     positionIndex: 3,
-    title: "Carta 3",
+    title: "",
     prompt: "Consejo o dirección",
     coordX: 75,
     coordY: 50,
@@ -146,6 +151,59 @@ interface CardSlotData {
   syncToGrimorio: boolean;
   coordX: number;
   coordY: number;
+}
+
+function getBalancedGridCoordinates(
+  count: number
+): Array<{ coordX: number; coordY: number }> {
+  const columns = 3;
+  const rows = Math.ceil(count / columns);
+  const firstY = rows === 2 ? 28 : rows === 3 ? 20 : 14;
+  const lastY = 100 - firstY;
+
+  return Array.from({ length: count }, (_, index) => {
+    const row = Math.floor(index / columns);
+    const rowStart = row * columns;
+    const cardsInRow = Math.min(columns, count - rowStart);
+    const column = index - rowStart;
+    const coordX =
+      cardsInRow === 1
+        ? 50
+        : Math.round(20 + (column / (cardsInRow - 1)) * 60);
+    const coordY =
+      rows === 1
+        ? 50
+        : Math.round(firstY + (row / (rows - 1)) * (lastY - firstY));
+
+    return { coordX, coordY };
+  });
+}
+
+function balanceSingleRowPositions(
+  positions: SpreadPositionDefinition[]
+): SpreadPositionDefinition[] {
+  if (
+    positions.length < 5 ||
+    Math.max(...positions.map((position) => position.coordY)) -
+      Math.min(...positions.map((position) => position.coordY)) >
+      1
+  ) {
+    return positions;
+  }
+
+  const coordinates = getBalancedGridCoordinates(positions.length);
+  return positions.map((position, index) => ({
+    ...position,
+    ...coordinates[index],
+  }));
+}
+
+function getSpreadOptionLabel(spread: SpreadTemplate): string {
+  const cleanName = spread.name
+    .replace(/(?:\s*\(\d+\s+cartas?\))+\s*$/i, "")
+    .trim();
+  const count = spread.positions.length;
+  return `${cleanName} (${count} ${count === 1 ? "carta" : "cartas"})`;
 }
 
 // 100% Lucide Icons for Phenomenon Types (Zero emojis)
@@ -209,7 +267,7 @@ export function NewReadingForm({
   const [isCancelDialogOpen, setIsCancelDialogOpen] = React.useState(false);
 
   // Unsaved changes protection & Draft tracking
-  const { isDirty, setIsDirty, registerSaveDraftHandler } = useUnsavedChanges();
+  const { setIsDirty, registerSaveDraftHandler } = useUnsavedChanges();
   const [currentDraftId, setCurrentDraftId] = React.useState<string | null>(null);
   const [isSavingDraft, setIsSavingDraft] = React.useState(false);
 
@@ -231,6 +289,8 @@ export function NewReadingForm({
   const [isRegisteringNewConsultant, setIsRegisteringNewConsultant] =
     React.useState(false);
   const [quickConsultantName, setQuickConsultantName] = React.useState("");
+  const [isQuickConsultantConfirmed, setIsQuickConsultantConfirmed] =
+    React.useState(false);
 
   const resolvedInitialIntention =
     initialIntention ||
@@ -243,9 +303,9 @@ export function NewReadingForm({
   const [sessionContext, setSessionContext] = React.useState(
     initialAppointment?.prepNotes ?? ""
   );
-  const [performedAt, setPerformedAt] = React.useState(
-    toDatetimeLocalValue(initialNowIso ?? new Date().toISOString())
-  );
+  const initialPerformedAt =
+    initialAppointment?.scheduledAt ?? initialNowIso ?? new Date().toISOString();
+  const [performedAt, setPerformedAt] = React.useState(initialPerformedAt);
 
   const initialClassicSpread =
     spreads.find((s) => s.id === defaultSpreadId) ?? spreads[0] ?? null;
@@ -256,8 +316,26 @@ export function NewReadingForm({
     initialClassicSpread?.id ?? ""
   );
   const [spreadName, setSpreadName] = React.useState(
-    initialClassicSpread?.name ?? "Estructura personalizada"
+    initialClassicSpread?.name ?? ""
   );
+
+  // Compare against the hydrated appointment values, not the pre-hydration form state.
+  const baselineRef = React.useRef({
+    appointmentId: initialAppointment?.id ?? "",
+    consultantId: resolvedInitialConsultant ?? "",
+    questionIntention: resolvedInitialIntention.trim(),
+    sessionContext: (initialAppointment?.prepNotes ?? "").trim(),
+    performedAt: toIsoUtcString(initialPerformedAt),
+    sessionTitle: (initialAppointment?.title ?? "").trim(),
+    selectedDeckIds: defaultDeckId
+      ? [defaultDeckId]
+      : decks[0]
+        ? [decks[0].id]
+        : [],
+    spreadMode: initialClassicSpread ? ("classic" as const) : ("custom" as const),
+    spreadTemplateId: initialClassicSpread?.id ?? "",
+    customPositions: JSON.stringify(DEFAULT_CUSTOM_POSITIONS),
+  });
 
   // Custom Spread Positions defined in Step 1
   const [customPositions, setCustomPositions] = React.useState<
@@ -298,7 +376,7 @@ export function NewReadingForm({
 
   // Step 3 Synthesis & Tags
   const [sessionTitle, setSessionTitle] = React.useState(
-    initialAppointment?.title || ""
+    initialAppointment?.title ?? ""
   );
   const [generalObservations, setGeneralObservations] = React.useState("");
   const [sessionSynthesis, setSessionSynthesis] = React.useState("");
@@ -524,8 +602,9 @@ export function NewReadingForm({
       basePositions = DEFAULT_CUSTOM_POSITIONS;
     }
 
+    const initialPositions = balanceSingleRowPositions(basePositions);
     setCardSlots((prevSlots) => {
-      return basePositions.map((pos) => {
+      return initialPositions.map((pos) => {
         const existing = prevSlots.find(
           (s) => s.positionIndex === pos.positionIndex
         );
@@ -561,6 +640,9 @@ export function NewReadingForm({
       ) {
         toast.error("Por favor ingresa el nombre o alias del nuevo consultante.");
         return;
+      }
+      if (isRegisteringNewConsultant && !isQuickConsultantConfirmed) {
+        setIsQuickConsultantConfirmed(true);
       }
       prepareCardSlots();
     }
@@ -706,20 +788,30 @@ export function NewReadingForm({
     const total = cardSlots.length;
     if (total <= 1) return;
     setCardSlots((prev) =>
-      prev.map((slot, idx) => ({
-        ...slot,
-        coordX: Math.round(15 + (idx / (total - 1)) * 70),
-        coordY: 50,
-      }))
+      total >= 5
+        ? prev.map((slot, idx) => ({
+            ...slot,
+            ...getBalancedGridCoordinates(total)[idx],
+          }))
+        : prev.map((slot, idx) => ({
+            ...slot,
+            coordX: Math.round(15 + (idx / (total - 1)) * 70),
+            coordY: 50,
+          }))
     );
-    toast.info("Cartas alineadas horizontalmente.");
+    toast.info(
+      total >= 5
+        ? "Cartas distribuidas en dos o más filas."
+        : "Cartas alineadas horizontalmente."
+    );
   };
 
   const resetToTemplatePositions = () => {
-    const base =
+    const templatePositions =
       spreadMode === "custom"
         ? customPositions
         : (selectedClassicSpread?.positions ?? DEFAULT_CUSTOM_POSITIONS);
+    const base = balanceSingleRowPositions(templatePositions);
 
     setCardSlots((prev) =>
       prev.map((slot) => {
@@ -752,8 +844,20 @@ export function NewReadingForm({
       coordX: slot.coordX,
       coordY: slot.coordY,
       hasEvent: eventPositionIndices.has(slot.positionIndex),
+      observationNotes: slot.observationNotes,
+      contextualInterpretation: slot.contextualInterpretation,
+      personalTakeaway: slot.personalTakeaway,
+      events: localDeckEvents
+        .filter((event) => event.positionIndex === slot.positionIndex)
+        .map((event) => ({
+          phenomenonType: event.phenomenonType,
+          customPhenomenonLabel: event.customPhenomenonLabel,
+          occurredPhase: event.occurredPhase,
+          observationDescription: event.observationDescription,
+          personalInterpretation: event.personalInterpretation,
+        })),
     }));
-  }, [cardSlots, cardByIdMap, eventPositionIndices]);
+  }, [cardSlots, cardByIdMap, eventPositionIndices, localDeckEvents]);
 
   // Save Reading Draft
   const handleSaveDraft = React.useCallback(async (): Promise<boolean> => {
@@ -783,7 +887,7 @@ export function NewReadingForm({
           spreadTemplateId: spreadMode === "classic" ? spreadTemplateId : "",
           spreadName:
             spreadMode === "custom"
-              ? spreadName.trim() || `Personalizada (${cardSlots.length} cartas)`
+              ? spreadName.trim() || "Estructura personalizada"
               : (selectedClassicSpread?.name ?? spreadName),
           customPositions: cardSlots.map((s) => ({
             positionIndex: s.positionIndex,
@@ -851,7 +955,7 @@ export function NewReadingForm({
         spreadTemplateId: spreadMode === "classic" ? spreadTemplateId : "",
         spreadName:
           spreadMode === "custom"
-            ? spreadName.trim() || `Personalizada (${cardSlots.length} cartas)`
+            ? spreadName.trim() || "Estructura personalizada"
             : (selectedClassicSpread?.name ?? spreadName),
         customPositions: cardSlots.map((s) => ({
           positionIndex: s.positionIndex,
@@ -863,7 +967,7 @@ export function NewReadingForm({
         questionIntention: questionIntention.trim(),
         sessionContext: sessionContext.trim(),
         status: "draft",
-        performedAt,
+        performedAt: toIsoUtcString(performedAt),
         generalObservations: generalObservations.trim(),
         sessionSynthesis: sessionSynthesis.trim(),
         closingReflections: "",
@@ -892,14 +996,14 @@ export function NewReadingForm({
     questionIntention,
     isRegisteringNewConsultant,
     consultantId,
-    initialAppointment?.id,
+    initialAppointment,
     selectedDeckIds,
     quickConsultantName,
     spreadMode,
     spreadTemplateId,
     cardSlots,
     spreadName,
-    selectedClassicSpread?.name,
+    selectedClassicSpread,
     sessionContext,
     performedAt,
     localDeckEvents,
@@ -917,28 +1021,56 @@ export function NewReadingForm({
     };
   }, [handleSaveDraft, registerSaveDraftHandler]);
 
-  // Track dirty state
+  // Track dirty state by comparing against initial hydrated baseline
   React.useEffect(() => {
-    const hasContent =
-      currentStep > 1 ||
-      questionIntention.trim().length > 0 ||
-      sessionContext.trim().length > 0 ||
+    const isChanged =
+      questionIntention.trim() !== baselineRef.current.questionIntention ||
+      sessionContext.trim() !== baselineRef.current.sessionContext ||
+      (consultantId ?? "") !== baselineRef.current.consultantId ||
+      toIsoUtcString(performedAt) !== baselineRef.current.performedAt ||
+      sessionTitle.trim() !== baselineRef.current.sessionTitle ||
+      selectedDeckIds.join("\u0000") !==
+        baselineRef.current.selectedDeckIds.join("\u0000") ||
+      spreadMode !== baselineRef.current.spreadMode ||
+      (spreadMode === "classic" &&
+        spreadTemplateId !== baselineRef.current.spreadTemplateId) ||
+      (spreadMode === "custom" &&
+        JSON.stringify(customPositions) !== baselineRef.current.customPositions) ||
+      isRegisteringNewConsultant ||
+      quickConsultantName.trim().length > 0 ||
       cardSlots.some((s) => s.cardId && s.cardId.trim().length > 0) ||
       localDeckEvents.length > 0 ||
       sessionSynthesis.trim().length > 0 ||
-      generalObservations.trim().length > 0;
+      generalObservations.trim().length > 0 ||
+      readingTags.length > 0;
 
-    setIsDirty(hasContent);
+    setIsDirty(isChanged);
   }, [
-    currentStep,
     questionIntention,
     sessionContext,
+    consultantId,
+    performedAt,
+    sessionTitle,
+    selectedDeckIds,
+    spreadMode,
+    spreadTemplateId,
+    customPositions,
+    isRegisteringNewConsultant,
+    quickConsultantName,
     cardSlots,
     localDeckEvents,
     sessionSynthesis,
     generalObservations,
+    readingTags,
     setIsDirty,
   ]);
+
+  // Auto-scroll to top smoothly whenever currentStep changes
+  React.useEffect(() => {
+    if (typeof window !== "undefined" && typeof window.scrollTo === "function") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [currentStep]);
 
   // Final Submit: Save & Complete Reading
   const handleCompleteAndSave = () => {
@@ -968,7 +1100,7 @@ export function NewReadingForm({
             spreadTemplateId: spreadMode === "classic" ? spreadTemplateId : "",
             spreadName:
               spreadMode === "custom"
-                ? spreadName.trim() || `Personalizada (${cardSlots.length} cartas)`
+                ? spreadName.trim() || "Estructura personalizada"
                 : (selectedClassicSpread?.name ?? spreadName),
             customPositions: cardSlots.map((s) => ({
               positionIndex: s.positionIndex,
@@ -1035,7 +1167,7 @@ export function NewReadingForm({
           spreadTemplateId: spreadMode === "classic" ? spreadTemplateId : "",
           spreadName:
             spreadMode === "custom"
-              ? spreadName.trim() || `Personalizada (${cardSlots.length} cartas)`
+              ? spreadName.trim() || "Estructura personalizada"
               : (selectedClassicSpread?.name ?? spreadName),
           customPositions: cardSlots.map((s) => ({
             positionIndex: s.positionIndex,
@@ -1047,7 +1179,7 @@ export function NewReadingForm({
           questionIntention: questionIntention.trim(),
           sessionContext: sessionContext.trim(),
           status: "completed",
-          performedAt,
+          performedAt: toIsoUtcString(performedAt),
           generalObservations: generalObservations.trim(),
           sessionSynthesis: sessionSynthesis.trim(),
           closingReflections: "",
@@ -1110,11 +1242,11 @@ export function NewReadingForm({
         </div>
 
         {/* 3-Step Stepper Bar with CLICKABLE Pill Buttons */}
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 sm:gap-2 self-start sm:self-auto max-w-full">
           <div
             role="group"
             aria-label="Progreso de la lectura"
-            className="inline-flex items-center gap-1 rounded-full border border-border bg-surface p-1 shadow-xs select-none"
+            className="inline-flex items-center gap-0.5 sm:gap-1 rounded-full border border-border bg-surface p-1 shadow-xs select-none"
           >
             {[
               { id: 1, label: "1. Estructura", title: "Configuración y estructura" },
@@ -1130,7 +1262,7 @@ export function NewReadingForm({
                   onClick={() => handleNavigateStep(step.id as 1 | 2 | 3)}
                   title={step.title}
                   className={cn(
-                    "flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                    "flex items-center gap-1 sm:gap-1.5 rounded-full px-2 sm:px-3 py-1 text-xs font-medium transition-[color,background-color,transform] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                     isActive
                       ? "bg-accent text-on-primary font-semibold shadow-xs"
                       : isCompleted
@@ -1163,7 +1295,7 @@ export function NewReadingForm({
             size="sm"
             onClick={() => handleSaveDraft()}
             disabled={isSavingDraft || isPending}
-            className="h-8 px-2.5 text-xs text-muted hover:text-ink flex items-center gap-1.5 border-border"
+            className="h-8 px-2 sm:px-2.5 text-xs text-muted hover:text-ink flex items-center gap-1.5 border-border shrink-0"
             title="Guardar como borrador"
           >
             <Bookmark className="size-3.5" aria-hidden="true" />
@@ -1179,11 +1311,13 @@ export function NewReadingForm({
             variant="ghost"
             size="sm"
             onClick={() => setIsCancelDialogOpen(true)}
-            className="text-muted hover:text-negative hover:bg-negative/10 h-8 px-2.5 text-xs"
+            className="text-muted hover:text-negative hover:bg-negative/10 h-8 px-2 sm:px-2.5 text-xs shrink-0"
             title="Cancelar lectura"
+            aria-label="Cancelar lectura"
           >
-            <X className="size-3.5 mr-1" aria-hidden="true" />
-            <span>Cancelar lectura</span>
+            <X className="size-3.5 sm:mr-1 shrink-0" aria-hidden="true" />
+            <span className="hidden sm:inline">Cancelar lectura</span>
+            <span className="sm:hidden">Salir</span>
           </Button>
         </div>
       </div>
@@ -1196,10 +1330,26 @@ export function NewReadingForm({
               Vinculada a cita: {initialAppointment.title}
             </p>
             <p className="text-xs text-muted">
+              Horario pactado: {formatSessionDateTime(initialAppointment.scheduledAt)}
+            </p>
+            <p className="text-xs text-muted">
               Al completar la lectura en el paso 3, el estado de la cita pasará automáticamente a Realizada.
             </p>
           </div>
-          <Badge variant="positive">Cita conectada</Badge>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() =>
+                setPerformedAt(toIsoUtcString(initialAppointment.scheduledAt))
+              }
+              className="h-8 text-xs"
+            >
+              Usar horario de la cita
+            </Button>
+            <Badge variant="positive">Cita conectada</Badge>
+          </div>
         </div>
       ) : null}
 
@@ -1219,6 +1369,7 @@ export function NewReadingForm({
                       onClick={() => {
                         setIsRegisteringNewConsultant(true);
                         setConsultantId("__new__");
+                        setIsQuickConsultantConfirmed(false);
                       }}
                       className="text-xs text-accent hover:underline inline-flex items-center gap-1 cursor-pointer"
                     >
@@ -1236,9 +1387,11 @@ export function NewReadingForm({
                     if (val === "__new__") {
                       setIsRegisteringNewConsultant(true);
                       setConsultantId("__new__");
+                      setIsQuickConsultantConfirmed(false);
                     } else {
                       setIsRegisteringNewConsultant(false);
                       setQuickConsultantName("");
+                      setIsQuickConsultantConfirmed(false);
                       setConsultantId(val);
                     }
                   }}
@@ -1250,7 +1403,11 @@ export function NewReadingForm({
                       {c.alias && c.alias !== c.fullName ? ` (${c.fullName})` : ""}
                     </option>
                   ))}
-                  <option value="__new__">+ Registrar nuevo consultante…</option>
+                  <option value="__new__">
+                    {quickConsultantName.trim()
+                      ? `Nuevo consultante: ${quickConsultantName.trim()}`
+                      : "+ Registrar nuevo consultante…"}
+                  </option>
                 </select>
 
                 {isRegisteringNewConsultant ? (
@@ -1267,6 +1424,7 @@ export function NewReadingForm({
                         onClick={() => {
                           setIsRegisteringNewConsultant(false);
                           setQuickConsultantName("");
+                          setIsQuickConsultantConfirmed(false);
                           setConsultantId("");
                         }}
                         className="text-xs text-muted hover:text-ink inline-flex items-center gap-1 cursor-pointer"
@@ -1275,13 +1433,33 @@ export function NewReadingForm({
                         <span>Cancelar</span>
                       </button>
                     </div>
-                    <Input
-                      id="quick-new-consultant-name"
-                      value={quickConsultantName}
-                      onChange={(e) => setQuickConsultantName(e.target.value)}
-                      placeholder="Escribe el nombre o alias (ej. Sofía Méndez)…"
-                      autoFocus
-                    />
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="quick-new-consultant-name"
+                        value={quickConsultantName}
+                        onChange={(e) => {
+                          setQuickConsultantName(e.target.value);
+                          setIsQuickConsultantConfirmed(false);
+                        }}
+                        placeholder="Escribe el nombre o alias (ej. Sofía Méndez)…"
+                        autoFocus
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={!quickConsultantName.trim()}
+                        onClick={() => setIsQuickConsultantConfirmed(true)}
+                        className="h-10 shrink-0"
+                      >
+                        Añadir
+                      </Button>
+                    </div>
+                    {isQuickConsultantConfirmed && quickConsultantName.trim() ? (
+                      <p aria-live="polite" className="text-xs text-accent">
+                        Se registrará a {quickConsultantName.trim()} al iniciar la lectura.
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -1410,7 +1588,7 @@ export function NewReadingForm({
                     const val = e.target.value;
                     if (val === "custom") {
                       setSpreadMode("custom");
-                      setSpreadName("Estructura personalizada");
+                      setSpreadName("");
                     } else {
                       setSpreadMode("classic");
                       setSpreadTemplateId(val);
@@ -1422,7 +1600,7 @@ export function NewReadingForm({
                 >
                   {spreads.map((sp) => (
                     <option key={sp.id} value={sp.id}>
-                      {sp.name} ({sp.positions.length} cartas)
+                      {getSpreadOptionLabel(sp)}
                     </option>
                   ))}
                   <option value="custom">Estructura personalizada</option>
@@ -1440,7 +1618,7 @@ export function NewReadingForm({
                       id="step1-custom-spread-name"
                       value={spreadName}
                       onChange={(e) => setSpreadName(e.target.value)}
-                      placeholder="Ej. Tirada de pareja, Espejo de 4 cartas…"
+                      placeholder="Ej. Tirada de espejo, Estrella de 6 puntas…"
                     />
                   </div>
 
@@ -1510,7 +1688,7 @@ export function NewReadingForm({
                                   e.target.value
                                 )
                               }
-                              placeholder={`Carta ${pos.positionIndex} (vacío toma este nombre)`}
+                              placeholder={`Carta ${pos.positionIndex}`}
                               className="h-8 text-xs font-medium"
                             />
                             {customPositions.length > 1 ? (
@@ -1546,9 +1724,19 @@ export function NewReadingForm({
 
             {/* Pregunta o tema de la consulta */}
             <div className="space-y-1.5">
-              <Label htmlFor="step1-intention">
-                Pregunta o tema de la consulta
-              </Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="step1-intention">
+                  Pregunta o tema de la consulta
+                </Label>
+                <VoiceMicButton
+                  fieldLabel="pregunta o tema de la consulta"
+                  onTranscript={(chunk) =>
+                    setQuestionIntention((current) =>
+                      appendVoiceTranscript(current, chunk)
+                    )
+                  }
+                />
+              </div>
               <Textarea
                 id="step1-intention"
                 rows={3}
@@ -1560,10 +1748,20 @@ export function NewReadingForm({
 
             {/* Notas previas / contexto */}
             <div className="space-y-1.5">
-              <Label htmlFor="step1-context">
-                Notas previas / Contexto{" "}
-                <span className="text-muted font-normal">(opcional)</span>
-              </Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="step1-context">
+                  Notas previas / Contexto{" "}
+                  <span className="text-muted font-normal">(opcional)</span>
+                </Label>
+                <VoiceMicButton
+                  fieldLabel="notas previas y contexto"
+                  onTranscript={(chunk) =>
+                    setSessionContext((current) =>
+                      appendVoiceTranscript(current, chunk)
+                    )
+                  }
+                />
+              </div>
               <Textarea
                 id="step1-context"
                 rows={2}
@@ -1574,33 +1772,35 @@ export function NewReadingForm({
             </div>
 
             {/* Bottom Actions for Step 1 */}
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-border pt-4">
               <Button
                 type="button"
                 variant="ghost"
                 onClick={() => setIsCancelDialogOpen(true)}
-                className="text-muted hover:text-negative"
+                className="text-muted hover:text-negative self-start sm:self-auto"
               >
                 Cancelar lectura
               </Button>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
                   variant="secondary"
                   onClick={() => handleSaveDraft()}
                   disabled={isSavingDraft || isPending}
-                  className="flex items-center gap-1.5 border-border"
+                  className="flex items-center gap-1.5 border-border min-w-0"
                 >
-                  <Bookmark className="size-4" aria-hidden="true" />
+                  <Bookmark className="size-4 shrink-0" aria-hidden="true" />
                   <span>{isSavingDraft ? "Guardando…" : "Guardar borrador"}</span>
                 </Button>
                 <Button
                   type="button"
                   variant="primary"
                   onClick={handleNextStep1}
+                  className="min-w-0"
                 >
-                  <span>Siguiente: Indicar cartas y notas</span>
-                  <ArrowRight className="size-4" aria-hidden="true" />
+                  <span className="hidden sm:inline">Siguiente: Indicar cartas y notas</span>
+                  <span className="sm:hidden">Siguiente: Cartas →</span>
+                  <ArrowRight className="hidden sm:inline size-4 shrink-0 ml-1" aria-hidden="true" />
                 </Button>
               </div>
             </div>
@@ -1667,7 +1867,7 @@ export function NewReadingForm({
           {/* Deck filtering summary banner */}
           <div className="rounded-xl border border-accent/40 bg-accent/5 p-4 flex flex-wrap items-center justify-between gap-3">
             <div className="space-y-0.5">
-              <p className="text-xs font-semibold text-accent uppercase tracking-wider">
+              <p className="text-xs font-semibold text-accent">
                 Filtro de cartas activo por mazo
               </p>
               <p className="text-xs text-ink">
@@ -1704,26 +1904,26 @@ export function NewReadingForm({
               return (
                 <div
                   key={slot.positionIndex}
-                  className="rounded-xl border border-border bg-surface p-4 sm:p-5 space-y-4 transition-colors hover:border-border-hover"
+                  className="rounded-xl border border-border bg-surface p-4 sm:p-5 space-y-4 transition-colors hover:border-border-hover min-w-0 max-w-full overflow-hidden"
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border pb-3">
-                    <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="flex flex-wrap items-start justify-between gap-2 border-b border-border pb-3 min-w-0 max-w-full">
+                    <div className="flex items-center gap-2.5 min-w-0 max-w-[calc(100%-115px)] sm:max-w-none">
                       <span className="inline-flex size-6 items-center justify-center rounded-full bg-accent text-on-primary text-xs font-semibold shrink-0 num-tabular">
                         {slot.positionIndex}
                       </span>
-                      <div>
-                        <h3 className="text-sm font-semibold text-ink">
+                      <div className="min-w-0 truncate">
+                        <h3 className="text-sm font-semibold text-ink truncate">
                           {slot.positionTitle}
                         </h3>
                         {slot.positionPrompt ? (
-                          <p className="text-xs text-muted">
+                          <p className="text-xs text-muted truncate">
                             {slot.positionPrompt}
                           </p>
                         ) : null}
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                       {selectedCard ? (
                         <Badge variant="positive">Carta asignada</Badge>
                       ) : (
@@ -1739,8 +1939,8 @@ export function NewReadingForm({
                   </div>
 
                   {/* Card selector & Orientation row */}
-                  <div className="grid gap-3 sm:grid-cols-12 items-center">
-                    <div className="sm:col-span-8">
+                  <div className="grid gap-3 sm:grid-cols-12 items-center min-w-0 max-w-full">
+                    <div className="sm:col-span-8 min-w-0 max-w-full">
                       <Label
                         htmlFor={`card-select-${slot.positionIndex}`}
                         className="text-xs text-muted mb-1 block"
@@ -1764,7 +1964,7 @@ export function NewReadingForm({
                       />
                     </div>
 
-                    <div className="sm:col-span-4">
+                    <div className="sm:col-span-4 min-w-0 max-w-full">
                       <Label className="text-xs text-muted mb-1 block">
                         Orientación
                       </Label>
@@ -1903,12 +2103,25 @@ export function NewReadingForm({
                     {isNotesExpanded ? (
                       <div className="mt-3 space-y-3 rounded-lg border border-border bg-ground p-3.5 animate-in fade-in duration-200">
                         <div className="space-y-1">
-                          <Label
-                            htmlFor={`notes-obs-${slot.positionIndex}`}
-                            className="text-xs text-muted"
-                          >
-                            Notas sobre la salida y observación inmediata
-                          </Label>
+                          <div className="flex items-center justify-between gap-2">
+                            <Label
+                              htmlFor={`notes-obs-${slot.positionIndex}`}
+                              className="text-xs text-muted"
+                            >
+                              Notas sobre la salida y observación inmediata
+                            </Label>
+                            <VoiceMicButton
+                              fieldLabel={`notas de la carta ${slot.positionIndex}`}
+                              onTranscript={(chunk) =>
+                                updateCardSlot(slot.positionIndex, {
+                                  observationNotes: appendVoiceTranscript(
+                                    slot.observationNotes,
+                                    chunk
+                                  ),
+                                })
+                              }
+                            />
+                          </div>
                           <Textarea
                             id={`notes-obs-${slot.positionIndex}`}
                             rows={2}
@@ -1924,12 +2137,25 @@ export function NewReadingForm({
                         </div>
 
                         <div className="space-y-1">
-                          <Label
-                            htmlFor={`notes-interp-${slot.positionIndex}`}
-                            className="text-xs text-muted"
-                          >
-                            Interpretación contextual
-                          </Label>
+                          <div className="flex items-center justify-between gap-2">
+                            <Label
+                              htmlFor={`notes-interp-${slot.positionIndex}`}
+                              className="text-xs text-muted"
+                            >
+                              Interpretación contextual
+                            </Label>
+                            <VoiceMicButton
+                              fieldLabel={`interpretación de la carta ${slot.positionIndex}`}
+                              onTranscript={(chunk) =>
+                                updateCardSlot(slot.positionIndex, {
+                                  contextualInterpretation: appendVoiceTranscript(
+                                    slot.contextualInterpretation,
+                                    chunk
+                                  ),
+                                })
+                              }
+                            />
+                          </div>
                           <Textarea
                             id={`notes-interp-${slot.positionIndex}`}
                             rows={2}
@@ -1970,15 +2196,17 @@ export function NewReadingForm({
           </div>
 
             {/* Bottom Actions for Step 2 */}
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-border pt-4">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
                   variant="secondary"
                   onClick={handleBackToStep1}
+                  className="min-w-0"
                 >
-                  <ArrowLeft className="size-4" aria-hidden="true" />
-                  <span>Volver a Configuración</span>
+                  <ArrowLeft className="size-4 shrink-0 mr-1" aria-hidden="true" />
+                  <span className="hidden sm:inline">Volver a Configuración</span>
+                  <span className="sm:hidden">← Volver</span>
                 </Button>
                 <Button
                   type="button"
@@ -1990,24 +2218,26 @@ export function NewReadingForm({
                 </Button>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
                   variant="secondary"
                   onClick={() => handleSaveDraft()}
                   disabled={isSavingDraft || isPending}
-                  className="flex items-center gap-1.5 border-border"
+                  className="flex items-center gap-1.5 border-border min-w-0"
                 >
-                  <Bookmark className="size-4" aria-hidden="true" />
+                  <Bookmark className="size-4 shrink-0" aria-hidden="true" />
                   <span>{isSavingDraft ? "Guardando…" : "Guardar borrador"}</span>
                 </Button>
                 <Button
                   type="button"
                   variant="primary"
                   onClick={handleNextStep2}
+                  className="min-w-0"
                 >
-                  <span>Siguiente: Acomodar cartas en la mesa</span>
-                  <ArrowRight className="size-4" aria-hidden="true" />
+                  <span className="hidden sm:inline">Siguiente: Acomodar cartas en la mesa</span>
+                  <span className="sm:hidden">Siguiente: Tapete →</span>
+                  <ArrowRight className="hidden sm:inline size-4 shrink-0 ml-1" aria-hidden="true" />
                 </Button>
               </div>
             </div>
@@ -2037,7 +2267,7 @@ export function NewReadingForm({
                 onClick={distributeHorizontal}
                 className="text-xs h-7.5"
               >
-                Alinear en línea
+                {cardSlots.length >= 5 ? "Distribuir en mesa" : "Alinear en línea"}
               </Button>
               <Button
                 type="button"
@@ -2060,6 +2290,9 @@ export function NewReadingForm({
               onSelectPosition={(idx) => setActiveBoardIndex(idx)}
               editable={true}
               onMovePosition={handleMoveBoardCard}
+              onPreviewNotesChange={(positionIndex, field, value) =>
+                updateCardSlot(positionIndex, { [field]: value })
+              }
             />
           </div>
 
@@ -2082,9 +2315,19 @@ export function NewReadingForm({
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="step3-observations">
-                  Observaciones generales
-                </Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="step3-observations">
+                    Observaciones generales
+                  </Label>
+                  <VoiceMicButton
+                    fieldLabel="observaciones generales"
+                    onTranscript={(chunk) =>
+                      setGeneralObservations((current) =>
+                        appendVoiceTranscript(current, chunk)
+                      )
+                    }
+                  />
+                </div>
                 <Textarea
                   id="step3-observations"
                   rows={3}
@@ -2095,7 +2338,17 @@ export function NewReadingForm({
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="step3-synthesis">Síntesis o conclusión</Label>
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="step3-synthesis">Síntesis o conclusión</Label>
+                  <VoiceMicButton
+                    fieldLabel="síntesis o conclusión"
+                    onTranscript={(chunk) =>
+                      setSessionSynthesis((current) =>
+                        appendVoiceTranscript(current, chunk)
+                      )
+                    }
+                  />
+                </div>
                 <Textarea
                   id="step3-synthesis"
                   rows={3}
@@ -2106,7 +2359,7 @@ export function NewReadingForm({
               </div>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 pb-3">
               <Label>Etiquetas de la lectura</Label>
               <TagInput
                 value={readingTags}
@@ -2118,16 +2371,18 @@ export function NewReadingForm({
           </div>
 
           {/* Bottom Actions for Step 3 */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-border pt-4">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 variant="secondary"
                 onClick={handleBackToStep2}
                 disabled={isPending}
+                className="min-w-0"
               >
-                <ArrowLeft className="size-4" aria-hidden="true" />
-                <span>Volver a Cartas y Notas</span>
+                <ArrowLeft className="size-4 shrink-0 mr-1" aria-hidden="true" />
+                <span className="hidden sm:inline">Volver a Cartas y Notas</span>
+                <span className="sm:hidden">← Volver</span>
               </Button>
               <Button
                 type="button"
@@ -2140,16 +2395,16 @@ export function NewReadingForm({
               </Button>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="button"
                 variant="secondary"
                 size="lg"
                 onClick={() => handleSaveDraft()}
                 disabled={isSavingDraft || isPending}
-                className="flex items-center gap-1.5 border-border"
+                className="flex items-center gap-1.5 border-border min-w-0"
               >
-                <Bookmark className="size-4" aria-hidden="true" />
+                <Bookmark className="size-4 shrink-0" aria-hidden="true" />
                 <span>{isSavingDraft ? "Guardando…" : "Guardar borrador"}</span>
               </Button>
 
@@ -2159,13 +2414,18 @@ export function NewReadingForm({
                 size="lg"
                 onClick={handleCompleteAndSave}
                 disabled={isPending}
-                className="font-medium"
+                className="min-w-0 font-medium"
               >
-                <Sparkles className="size-4" aria-hidden="true" />
+                <Sparkles className="size-4 shrink-0 mr-1" aria-hidden="true" />
                 <span>
                   {isPending
                     ? "Guardando lectura…"
-                    : "Completar y guardar lectura"}
+                    : (
+                      <>
+                        <span className="hidden sm:inline">Completar y guardar lectura</span>
+                        <span className="sm:hidden">Finalizar lectura</span>
+                      </>
+                    )}
                 </span>
               </Button>
             </div>
@@ -2302,7 +2562,17 @@ export function NewReadingForm({
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="modal-desc">Descripción del suceso</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="modal-desc">Descripción del suceso</Label>
+                <VoiceMicButton
+                  fieldLabel="descripción del suceso"
+                  onTranscript={(chunk) =>
+                    setModalDescription((current) =>
+                      appendVoiceTranscript(current, chunk)
+                    )
+                  }
+                />
+              </div>
               <Textarea
                 id="modal-desc"
                 rows={2}
@@ -2314,10 +2584,20 @@ export function NewReadingForm({
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="modal-interp">
-                Interpretación intuitiva{" "}
-                <span className="text-muted font-normal">(opcional)</span>
-              </Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="modal-interp">
+                  Interpretación intuitiva{" "}
+                  <span className="text-muted font-normal">(opcional)</span>
+                </Label>
+                <VoiceMicButton
+                  fieldLabel="interpretación intuitiva"
+                  onTranscript={(chunk) =>
+                    setModalInterpretation((current) =>
+                      appendVoiceTranscript(current, chunk)
+                    )
+                  }
+                />
+              </div>
               <Textarea
                 id="modal-interp"
                 rows={2}

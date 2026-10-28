@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type { AppointmentFormValues } from "@/schemas/domain";
 import { createQuickConsultant } from "@/repositories/consultants-repository";
 import { getDb, type AppDatabase } from "@/server/db";
+import { toIsoUtcString } from "@/lib/utils";
 import type {
   Appointment,
   AppointmentModality,
@@ -167,10 +168,7 @@ export async function createAppointment(
 
   const id = `appt-${randomUUID()}`;
   const nowIso = new Date().toISOString();
-  const scheduledDate = new Date(values.scheduledAt);
-  const scheduledIso = Number.isNaN(scheduledDate.getTime())
-    ? values.scheduledAt
-    : scheduledDate.toISOString();
+  const scheduledIso = toIsoUtcString(values.scheduledAt);
   const resolvedDuration = values.hasSpecificDuration
     ? values.durationMinutes
     : null;
@@ -217,10 +215,7 @@ export async function updateAppointment(
   }
 
   const nowIso = new Date().toISOString();
-  const scheduledDate = new Date(values.scheduledAt);
-  const scheduledIso = Number.isNaN(scheduledDate.getTime())
-    ? values.scheduledAt
-    : scheduledDate.toISOString();
+  const scheduledIso = toIsoUtcString(values.scheduledAt);
   const resolvedDuration = values.hasSpecificDuration
     ? values.durationMinutes
     : null;

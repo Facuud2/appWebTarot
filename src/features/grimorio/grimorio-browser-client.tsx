@@ -76,24 +76,58 @@ type SuitOrArcanaFilter =
 interface GrimorioBrowserClientProps {
   initialCards: GrimorioCardSummary[];
   initialDecks: Deck[];
+  availableDecks: Deck[];
   initialSpreads: SpreadTemplate[];
   defaultTab?: string;
+  defaultDeckId?: string;
   initialEditDeckId?: string;
 }
 
 export function GrimorioBrowserClient({
   initialCards,
   initialDecks,
+  availableDecks,
   initialSpreads,
   defaultTab = "cartas",
+  defaultDeckId,
   initialEditDeckId,
 }: GrimorioBrowserClientProps) {
   const router = useRouter();
   const [query, setQuery] = React.useState("");
+  const [selectedDeckId, setSelectedDeckId] = React.useState<string>(() => {
+    if (defaultDeckId && availableDecks.some((d) => d.id === defaultDeckId)) {
+      return defaultDeckId;
+    }
+    return (
+      availableDecks.find((d) => d.isDefault)?.id ??
+      availableDecks[0]?.id ??
+      "all"
+    );
+  });
   const [groupFilter, setGroupFilter] =
     React.useState<SuitOrArcanaFilter>("all");
   const [onlyAnnotated, setOnlyAnnotated] = React.useState(false);
   const [onlyPhenomena, setOnlyPhenomena] = React.useState(false);
+  const [onlyWithAppearances, setOnlyWithAppearances] = React.useState(false);
+
+  const activeDeck = React.useMemo(() => {
+    return availableDecks.find((d) => d.id === selectedDeckId) ?? null;
+  }, [availableDecks, selectedDeckId]);
+
+  const deckNamesMap = React.useMemo(() => {
+    const map: Record<string, string> = {
+      rws: "Rider-Waite-Smith",
+      marseille: "Tarot de Marsella",
+      thoth: "Tarot de Thoth",
+      lenormand: "Tarot Lenormand",
+      living_wheel: "The Living Wheel",
+    };
+    for (const d of availableDecks) {
+      map[d.tradition] = d.name;
+      map[d.id] = d.name;
+    }
+    return map;
+  }, [availableDecks]);
 
   const initialTargetDeck = React.useMemo(
     () =>
@@ -112,9 +146,41 @@ export function GrimorioBrowserClient({
   const [spreadDialogOpen, setSpreadDialogOpen] = React.useState(false);
   const [isPending, startTransition] = React.useTransition();
 
+  const cardsForActiveDeck = React.useMemo(() => {
+    if (!activeDeck) return initialCards;
+    return initialCards.filter((item) => {
+      if (!activeDeck.isBuiltin && activeDeck.userId !== null) {
+        return item.card.deckTradition === activeDeck.id;
+      }
+      return item.card.deckTradition === activeDeck.tradition;
+    });
+  }, [initialCards, activeDeck]);
+
+  const totalDeckCards = cardsForActiveDeck.length;
+  const majorCount = React.useMemo(
+    () => cardsForActiveDeck.filter((c) => c.card.arcana === "major").length,
+    [cardsForActiveDeck]
+  );
+  const wandsCount = React.useMemo(
+    () => cardsForActiveDeck.filter((c) => c.card.suit === "wands").length,
+    [cardsForActiveDeck]
+  );
+  const cupsCount = React.useMemo(
+    () => cardsForActiveDeck.filter((c) => c.card.suit === "cups").length,
+    [cardsForActiveDeck]
+  );
+  const swordsCount = React.useMemo(
+    () => cardsForActiveDeck.filter((c) => c.card.suit === "swords").length,
+    [cardsForActiveDeck]
+  );
+  const pentaclesCount = React.useMemo(
+    () => cardsForActiveDeck.filter((c) => c.card.suit === "pentacles").length,
+    [cardsForActiveDeck]
+  );
+
   const filteredCards = React.useMemo(() => {
     const q = query.trim().toLowerCase();
-    return initialCards.filter((item) => {
+    return cardsForActiveDeck.filter((item) => {
       if (groupFilter === "major" && item.card.arcana !== "major") return false;
       if (
         groupFilter !== "all" &&
@@ -135,6 +201,7 @@ export function GrimorioBrowserClient({
 
       if (onlyAnnotated && !hasOwnNotes) return false;
       if (onlyPhenomena && item.phenomenaCount === 0) return false;
+      if (onlyWithAppearances && item.appearancesCount === 0) return false;
 
       if (q) {
         const haystack = [
@@ -156,18 +223,36 @@ export function GrimorioBrowserClient({
 
       return true;
     });
-  }, [initialCards, query, groupFilter, onlyAnnotated, onlyPhenomena]);
+  }, [
+    cardsForActiveDeck,
+    query,
+    groupFilter,
+    onlyAnnotated,
+    onlyPhenomena,
+    onlyWithAppearances,
+  ]);
 
-  const annotatedTotal = React.useMemo(
-    () =>
-      initialCards.filter(
-        (c) =>
-          c.personalEntry &&
-          (c.personalEntry.personalMeaning.trim().length > 0 ||
-            c.personalEntry.keywords.length > 0 ||
-            c.personalEntry.reflections.trim().length > 0)
-      ).length,
-    [initialCards]
+  const groupFilterOptions = React.useMemo(
+    () => [
+      { id: "all" as const, label: `Todas (${totalDeckCards})` },
+      { id: "major" as const, label: `Arcanos Mayores (${majorCount})` },
+      { id: "wands" as const, label: `Bastos (${wandsCount})` },
+      { id: "cups" as const, label: `Copas (${cupsCount})` },
+      { id: "swords" as const, label: `Espadas (${swordsCount})` },
+      {
+        id: "pentacles" as const,
+        label: `${activeDeck?.tradition === "thoth" ? "Discos" : activeDeck ? "Oros" : "Oros / Discos"} (${pentaclesCount})`,
+      },
+    ],
+    [
+      activeDeck,
+      totalDeckCards,
+      majorCount,
+      wandsCount,
+      cupsCount,
+      swordsCount,
+      pentaclesCount,
+    ]
   );
 
   // Deck Creation / Edition Form
@@ -333,24 +418,18 @@ export function GrimorioBrowserClient({
 
   return (
     <Tabs defaultValue={defaultTab} className="space-y-5">
-      <TabsList aria-label="Secciones de cartas y mazos">
-        <TabsTrigger value="cartas">
-          <span>Las 78 cartas</span>
-          <span className="text-xs text-muted num-tabular">
-            ({annotatedTotal}/78 con notas)
-          </span>
+      <TabsList aria-label="Secciones de cartas y mazos" className="no-scrollbar">
+        <TabsTrigger value="cartas" className="px-2.5 sm:px-3 text-xs sm:text-sm">
+          <span>Cartas</span>
+          <span className="text-xs text-muted num-tabular">({totalDeckCards})</span>
         </TabsTrigger>
-        <TabsTrigger value="mazos">
+        <TabsTrigger value="mazos" className="px-2.5 sm:px-3 text-xs sm:text-sm">
           <span>Mis mazos</span>
-          <span className="text-xs text-muted num-tabular">
-            ({initialDecks.length})
-          </span>
+          <span className="text-xs text-muted num-tabular">({initialDecks.length})</span>
         </TabsTrigger>
-        <TabsTrigger value="tiradas">
-          <span>Estructuras de tirada</span>
-          <span className="text-xs text-muted num-tabular">
-            ({initialSpreads.length})
-          </span>
+        <TabsTrigger value="tiradas" className="px-2.5 sm:px-3 text-xs sm:text-sm">
+          <span>Estructuras</span>
+          <span className="text-xs text-muted num-tabular">({initialSpreads.length})</span>
         </TabsTrigger>
       </TabsList>
 
@@ -360,18 +439,39 @@ export function GrimorioBrowserClient({
       <TabsContent value="cartas" className="space-y-5">
         <div className="rounded-xl border border-border bg-surface p-4 sm:p-5 space-y-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative flex-1 max-w-xl">
-              <Search
-                className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted"
-                aria-hidden="true"
-              />
-              <Input
-                aria-label="Buscar carta por nombre, símbolo o palabra clave"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Buscar por nombre de carta, palabra clave o símbolo…"
-                className="pl-9"
-              />
+            <div className="flex flex-col sm:flex-row gap-2.5 flex-1 max-w-2xl">
+              <div className="relative flex-1">
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted"
+                  aria-hidden="true"
+                />
+                <Input
+                  aria-label="Buscar carta por nombre, símbolo o palabra clave"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Buscar carta, palabra clave o símbolo…"
+                  className="pl-9"
+                />
+              </div>
+
+              <div className="w-full sm:w-56 shrink-0">
+                <label htmlFor="deck-selector" className="sr-only">
+                  Seleccionar mazo activo
+                </label>
+                <select
+                  id="deck-selector"
+                  value={selectedDeckId}
+                  onChange={(e) => setSelectedDeckId(e.target.value)}
+                  className="h-10 w-full rounded-lg border border-border bg-ground px-3 text-xs text-ink focus:border-ink focus:outline-none"
+                >
+                  <option value="all">Todos los mazos</option>
+                  {availableDecks.map((deck) => (
+                    <option key={deck.id} value={deck.id}>
+                      {deck.name} {deck.isDefault ? "(Predeterminado)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-4">
@@ -390,6 +490,14 @@ export function GrimorioBrowserClient({
                 />
                 <span>Con eventos del mazo</span>
               </label>
+
+              <label className="inline-flex items-center gap-2 text-xs text-ink cursor-pointer select-none">
+                <Checkbox
+                  checked={onlyWithAppearances}
+                  onCheckedChange={(v) => setOnlyWithAppearances(v === true)}
+                />
+                <span>Con apariciones en lecturas</span>
+              </label>
             </div>
           </div>
 
@@ -399,16 +507,7 @@ export function GrimorioBrowserClient({
             aria-label="Filtrar catálogo por grupo o palo"
             className="flex flex-wrap gap-1.5"
           >
-            {(
-              [
-                { id: "all", label: "Todas (78)" },
-                { id: "major", label: "Arcanos Mayores (22)" },
-                { id: "wands", label: "Bastos (14)" },
-                { id: "cups", label: "Copas (14)" },
-                { id: "swords", label: "Espadas (14)" },
-                { id: "pentacles", label: "Oros (14)" },
-              ] as const
-            ).map((opt) => (
+            {groupFilterOptions.map((opt) => (
               <button
                 key={opt.id}
                 type="button"
@@ -440,9 +539,10 @@ export function GrimorioBrowserClient({
                 setGroupFilter("all");
                 setOnlyAnnotated(false);
                 setOnlyPhenomena(false);
+                setOnlyWithAppearances(false);
               }}
             >
-              Ver las 78 cartas
+              Ver todas las cartas
             </Button>
           </div>
         ) : (
@@ -469,11 +569,16 @@ export function GrimorioBrowserClient({
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-[11px] text-muted num-tabular">
-                          {item.card.arcana === "major"
-                            ? `Arcano Mayor · ${item.card.romanNumeral ?? item.card.rankNumber}`
-                            : `${item.card.suit ? SUIT_LABELS[item.card.suit as TarotSuit] : ""}`}
-                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                          <p className="text-[11px] text-muted num-tabular">
+                            {item.card.arcana === "major"
+                              ? `Arcano Mayor · ${item.card.romanNumeral ?? item.card.rankNumber}`
+                              : `${item.card.suit ? SUIT_LABELS[item.card.suit as TarotSuit] : ""}`}
+                          </p>
+                          <Badge variant="neutral" className="text-[10px] px-1.5 py-0 font-normal">
+                            {activeDeck?.name || deckNamesMap[item.card.deckTradition] || item.card.deckTradition}
+                          </Badge>
+                        </div>
                         <h2 className="truncate font-serif text-lg text-ink group-hover:text-accent">
                           {item.card.canonicalName}
                         </h2>

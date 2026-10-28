@@ -51,11 +51,13 @@ La gran mayoría del software de tarot en el mercado consiste en simuladores lú
   - Selector de mazo(s) a utilizar: barajas tradicionales preconfiguradas o mazos propios del usuario.
   - Selección de consultante existente o alta rápida sin abandonar el flujo. Admite lecturas para uno mismo o anónimas.
   - Definición de pregunta / tema / intención central.
-  - Campos de contexto confidencial previo y fecha/hora precisa de la sesión.
+  - Campos de contexto confidencial previo y selector visual de fecha y hora en español.
+  - **Horario coherente en toda la aplicación**: las fechas se almacenan en ISO 8601 UTC y se presentan en hora local con un formato editorial compartido en agenda, lecturas, fichas y tablero principal.
   - Estructura de tirada: plantillas clásicas (Cruz Simple, Cruz Celta, Tres Cartas, Consejo Rápido, Mesa Libre) o **Estructura Personalizada**.
-  - **Auto-nominación inteligente**: Al crear tiradas personalizadas, si se dejan vacíos los títulos de las posiciones, el sistema asigna de forma automática `Carta 1`, `Carta 2`, `Carta 3`, etc.
+  - **Estructuras personalizadas ágiles**: nombre opcional, cantidad flexible de posiciones y sugerencias uniformes; al guardar, las posiciones vacías reciben automáticamente nombres como `Carta 1`, `Carta 2` y `Carta 3`.
 - **Paso 2: Selección de Cartas, Notas y Fenómenos Materiales**:
   - **Selector de cartas con filtrado estricto por mazo**: Solo se listan las cartas pertenecientes a los mazos seleccionados en el Paso 1 (por ejemplo, si se eligió Crowley Thoth, solo aparecen cartas de Thoth; si se combinó RWS con Living Wheel, ambas coexisten ordenadas).
+  - **Búsqueda y filtros rápidos**: Encuentra cartas por nombre, tradición, numeración o palabras clave, con búsqueda tolerante a tildes y filtros por arcano y palo.
   - **Identificación visual del mazo**: Cada carta indica su baraja (`The Fool — Rider-Waite-Smith`, `The Fool — Thoth`), evitando ambigüedades entre barajas con nombres compartidos.
   - **Alta reactiva de cartas en mazos personalizados**: Cuando se usan barajas creadas por el usuario, la primera opción del selector es `+ Registrar nueva carta en [Mazo]`, guardándose reactivamente en el catálogo sin recargar la página.
   - **Regla de no duplicación**: Una carta ya colocada en una posición queda excluida del selector en las demás posiciones.
@@ -64,9 +66,28 @@ La gran mayoría del software de tarot en el mercado consiste en simuladores lú
   - **Registro de Fenómenos del Mazo**: Cajón lateral con iconografía Lucide para registrar anomalías físicas acaecidas durante el barajado o la tirada (salto espontáneo, caída al suelo, carta de base, etc.).
 - **Paso 3: Tapete Interactivo (`SpreadMap`), Síntesis y Cierre**:
   - Disposición espacial libre: arrastrar, posicionar y reorientar las cartas sobre el tapete virtual para replicar exactamente su distribución física sobre el paño.
-  - **Bloqueo de scroll táctil**: Durante el arrastre de una carta, se anula el scroll de la página para una manipulación precisa.
-  - Conclusiones y síntesis general, sugerencias y etiquetado temático (*tags*).
+  - **Mesa preparada para pantallas táctiles**: Distribución equilibrada de tiradas amplias, nombres de carta legibles y scroll de página controlado mientras se arrastran o acomodan cartas.
+  - Conclusiones y síntesis general, sugerencias y etiquetas temáticas que pueden añadirse con Enter o coma desde el teclado móvil.
+  - La ficha de lectura presenta las etiquetas en una sección propia, diferenciada de las notas previas.
   - Guardado definitivo con persistencia atómica en la base de datos.
+- **Flujo adaptable a móvil**: Los pasos, selectores, controles y acciones mantienen su legibilidad y quedan dentro del ancho disponible; los selectores de cartas y fecha/hora se desplazan de forma cómoda en pantallas pequeñas.
+- **Dictado nativo integrado al flujo**: La API de voz del navegador permite dictar preguntas, contexto, observaciones, notas por carta, fenómenos y síntesis sin servicios externos; el vocabulario de Tarot se normaliza en el dispositivo y cada fragmento se agrega a las notas existentes.
+- **Tapete con cartas visuales**: Cada posición conserva su arte al derecho o invertido, abre una vista ampliada con significado, eventos y notas, y permite recorrer las cartas de la tirada sin cerrar el diálogo.
+- **Selector visual de mazos**: Las opciones de cartas incluyen miniaturas arquetípicas para identificar rápidamente nombres y tradiciones desde pantallas pequeñas.
+
+### 🎙️ Dictado por Voz y Normalización Esotérica
+- Reconocimiento de voz nativo del navegador en español, con preferencia por `es-AR` y alternativa según el idioma disponible.
+- Normalización local de nombres de mazos y tradiciones, arcanos, palos, términos astrológicos y comandos hablados de puntuación.
+- Inserción acumulativa en los campos de lecturas, eventos físicos y estudio personal: las notas escritas se conservan y los formularios mantienen su estado de edición y autoguardado.
+- Indicador de escucha y vista previa del texto transitorio, con estados accesibles y controles compatibles con navegadores sin Web Speech API.
+
+### 🂠 Sistema Visual de Cartas en Capas
+- Ilustraciones vectoriales arquetípicas generadas desde los metadatos del catálogo como representación inmediata de cada carta.
+- Resolución visual por prioridad: imagen personal del dispositivo, activo estático WebP bajo `/decks/{mazo}/{carta}.webp` y placa SVG generativa.
+- Fotografías personales redimensionadas a `240 × 400` y comprimidas como WebP en `IndexedDB`; permanecen en el navegador y no se guardan como binarios en SQLite/Turso.
+- Rotación de 180° aplicada únicamente al arte de una carta invertida; el número de posición y la cartela editorial permanecen legibles.
+- Vista previa navegable con significado, mazo, fenómenos y notas asociadas, además de edición contextual y carga de imagen local.
+- Renderizado de imágenes con `<img>` nativo, carga diferida y decodificación asíncrona, sin optimización dinámica de imágenes ni cuota de Vercel.
 
 ### ⚡ Observatorio de Fenómenos del Mazo
 - Registro de acontecimientos físicos singulares con iconografía SVG Lucide estandarizada:
@@ -83,23 +104,34 @@ La gran mayoría del software de tarot en el mercado consiste en simuladores lú
 ### 📖 Grimorio Digital y Biblioteca Arquetípica
 - **78 cartas canónicas completas**: Arcanos Mayores y Menores con simbolismos, correspondencias astrológicas, elementales y numerológicas.
 - **Múltiples tradiciones**: Rider-Waite-Smith (RWS), Marsella tradicional, Crowley Thoth, Lenormand y Living Wheel.
+- **Catálogo organizado por mazo**: Selector con cartas y cantidades por tradición, filtros por arcano y palo, búsqueda y vistas de cartas anotadas, con fenómenos o presentes en lecturas.
 - **Ficha personal evolutiva por carta y mazo**: Espacio para redactar la visión propia del tarotista, símbolos emergentes y notas fechadas para observar la maduración interpretativa con el paso del tiempo.
+- **Estudio con voz e imagen local**: Dictado de notas personales y significados; cada carta admite una imagen WebP privada del dispositivo con actualización inmediata en las vistas del espacio de trabajo.
 
 ### 👥 CRM de Consultantes
 - Fichas individuales con alias, canal de contacto predilecto (presencial, videollamada, WhatsApp, etc.) y notas reservadas.
 - Avatares con tonos pastel automáticos y accesibles.
 - Historial consolidado: expediente que reúne todas las tiradas, citas pasadas y citas futuras de cada consultante.
+- **Búsqueda y filtros por contexto**: Estados de ficha, como «Pendiente de datos», se distinguen de las etiquetas temáticas y el listado conserva fechas en formato editorial español.
 - Archivado reversible: posibilidad de archivar fichas sin alterar el historial de lecturas pasadas.
 
 ### 📅 Agenda de Citas y Calendario
 - Vistas alternables en lista cronológica y calendario interactivo mensual.
 - Diferenciación de estados: *programada*, *en curso*, *completada* y *cancelada*.
 - **Enlace directo a lectura**: Inicia la sesión desde la cita precargando automáticamente el consultante, fecha y hora.
+- **Acciones pensadas para toque**: Acciones principales e iconos se agrupan con áreas táctiles cómodas en tarjetas adaptables.
+- **Hora local consistente**: La hora elegida se conserva y se muestra igual en calendario, agenda y próximas sesiones del inicio.
+
+### ✨ Acompañamiento y preferencias del espacio
+- **Onboarding progresivo**: Presentación paso a paso de las funciones, con navegación clara y retorno al inicio al comenzar un recorrido de repaso.
+- **Primera cita integrada**: Desde la guía se puede registrar una cita con el mismo selector localizado de la agenda; el formulario se confirma antes de continuar para conservar lo ingresado.
+- **Preferencias cómodas en móvil**: Selector de tema compacto y búsqueda global accesible desde la lupa superior o mediante atajos de teclado en escritorio.
+- **Acceso y registro claros**: La pantalla de bienvenida explica privacidad y sincronización sin exponer direcciones internas de infraestructura.
 
 ### 🛡️ Portabilidad, Resguardos y Exportación
 - **Exportación en Markdown editorial (`.md`)**: Generación de informes listos para imprimir o enviar al consultante.
 - **Respaldos completos en JSON**: Exportación integral del espacio de trabajo (usuarios, lecturas, consultantes, notas, eventos y citas) e importación con validación estricta Zod.
-- **Paleta de Comandos Global (`⌘K` / `Ctrl+K`)**: Navegación rápida entre cualquier carta, sección o consultante desde el teclado.
+- **Búsqueda global**: Acceso desde la lupa superior en pantallas táctiles o con `⌘K` / `Ctrl+K` en escritorio para encontrar cartas, consultantes y lecturas.
 
 ---
 
@@ -243,8 +275,8 @@ appWebTarot/
 │   ├── components/                   # Componentes visuales reutilizables
 │   │   ├── layout/                   # AppShell y GlobalCommandPalette (⌘K)
 │   │   ├── providers/                # ThemeProvider, UnsavedChangesProvider y gestos táctiles
-│   │   ├── shared/                   # SpreadMap (tapete interactivo), TarotCardPlate
-│   │   └── ui/                       # Primitivas accesibles (CardCombobox, Dialog, etc.)
+│   │   ├── shared/                   # SpreadMap, TarotCardPlate, arte SVG y vista previa de cartas
+│   │   └── ui/                       # Primitivas accesibles (CardCombobox, Dialog, dictado, etc.)
 │   ├── features/                     # Componentes interactivos organizados por dominio
 │   │   ├── agenda/                   # Vistas de agenda y formularios de citas
 │   │   ├── auth/                     # Formularios de acceso y switch de entorno
@@ -252,8 +284,10 @@ appWebTarot/
 │   │   ├── grimorio/                 # Navegador de arcanos y editor de notas
 │   │   ├── readings/                 # Wizard de 3 pasos (new-reading-form.tsx)
 │   │   └── settings/                 # Exportación e importación de datos
-│   ├── lib/                          # Catálogos canónicos, constantes y RPC client
+│   ├── hooks/                        # Hook reactivo de dictado de voz nativo
+│   ├── lib/                          # Catálogos, normalizador léxico, almacén local de imágenes y RPC client
 │   │   ├── catalogs/                 # Semillas de cartas: RWS, Thoth, Marsella, etc.
+│   │   ├── card-image-store.ts       # Compresión WebP e IndexedDB en el navegador
 │   │   ├── rpc-client.ts             # Cliente HTTP tipado para /api/rpc
 │   │   └── tarot-catalog.ts          # 78 cartas canónicas y plantillas de tirada
 │   ├── repositories/                 # Consultas SQL nativas con node:sqlite
@@ -263,6 +297,8 @@ appWebTarot/
 │       ├── auth-flow.test.ts         # Integración de autenticación y cookies
 │       ├── components.test.tsx       # Renderizado de componentes clave
 │       ├── new-reading-wizard.test.tsx # Suite del wizard en 3 pasos y cancelaciones
+│       ├── voice-dictation.test.tsx  # Hook nativo, idioma y anexado acumulativo
+│       ├── voice-normalizer.test.ts  # Léxico de Tarot y puntuación hablada
 │       └── repositories.test.ts      # Consultas SQL sobre BD en memoria
 ├── .env.example                      # Plantilla de variables de entorno
 └── package.json                      # Scripts de ejecución y dependencias
@@ -382,3 +418,6 @@ Toda mutación de datos se despacha mediante un único endpoint centralizado con
 ### 4. PWA y Experiencia de Pantalla Completa
 - Totalmente instalable en iOS, Android, macOS y Windows a través de `manifest.ts`.
 - Permite al tarotista dedicar una tablet en modo atril junto a la mesa de consulta con experiencia de aplicación de escritorio.
+- Incluye iconos PNG para Android y Apple, un Service Worker Network-First y metadatos de pantalla completa para iOS.
+- El asistente de instalación captura el prompt nativo en Android y muestra instrucciones distintas para Safari y Chrome en iPhone.
+- En modo standalone, la cabecera, la navegación inferior y el contenido respetan las áreas seguras del dispositivo.

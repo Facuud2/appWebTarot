@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { NewReadingForm } from "@/features/readings/new-reading-form";
 import { getAppointmentById } from "@/repositories/appointments-repository";
 import { listConsultants } from "@/repositories/consultants-repository";

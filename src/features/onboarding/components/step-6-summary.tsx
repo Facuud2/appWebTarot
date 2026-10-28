@@ -160,10 +160,7 @@ export function Step6Summary({
           <div className="flex items-center gap-2 text-muted">
             <CheckCircle2 className="size-4 text-positive shrink-0" />
             <span>
-              Búsqueda rápida con atajo:{" "}
-              <kbd className="rounded border border-border bg-surface px-1.5 py-0.5 text-[10px] font-mono text-ink">
-                ⌘K
-              </kbd>
+              Búsqueda rápida: toca la lupa de la barra superior o pulsa ⌘K / Ctrl+K en escritorio.
             </span>
           </div>
         </div>

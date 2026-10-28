@@ -21,6 +21,8 @@ interface ConsultantsDirectoryClientProps {
   openCreateInitially: boolean;
 }
 
+const PENDING_SETUP_TAG = "Pendiente de datos";
+
 export function ConsultantsDirectoryClient({
   consultants,
   allTags,
@@ -32,6 +34,14 @@ export function ConsultantsDirectoryClient({
   const router = useRouter();
   const [createOpen, setCreateOpen] = React.useState(openCreateInitially);
   const [searchInput, setSearchInput] = React.useState(initialQuery);
+  const thematicTags = allTags.filter(
+    (tag) => tag.toLowerCase() !== PENDING_SETUP_TAG.toLowerCase()
+  );
+  const showSetupStatusFilter =
+    allTags.some(
+      (tag) => tag.toLowerCase() === PENDING_SETUP_TAG.toLowerCase()
+    ) ||
+    initialTag.toLowerCase() === PENDING_SETUP_TAG.toLowerCase();
 
   const applyFilter = (params: {
     q?: string;
@@ -119,7 +129,7 @@ export function ConsultantsDirectoryClient({
             type="button"
             onClick={() => applyFilter({ archived: false })}
             aria-pressed={!showingArchived}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-150 active:scale-95 ${
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-[color,background-color,border-color,transform] duration-150 active:scale-95 ${
               !showingArchived
                 ? "bg-ground text-ink border border-border shadow-xs"
                 : "text-muted hover:text-ink"
@@ -131,7 +141,7 @@ export function ConsultantsDirectoryClient({
             type="button"
             onClick={() => applyFilter({ archived: true })}
             aria-pressed={showingArchived}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-150 active:scale-95 ${
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-[color,background-color,border-color,transform] duration-150 active:scale-95 ${
               showingArchived
                 ? "bg-ground text-ink border border-border shadow-xs"
                 : "text-muted hover:text-ink"
@@ -143,28 +153,57 @@ export function ConsultantsDirectoryClient({
         </div>
       </div>
 
-      {/* Tag Filter Chips */}
-      {allTags.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-muted mr-1">Etiquetas:</span>
-          {allTags.map((tag) => {
-            const active = initialTag.toLowerCase() === tag.toLowerCase();
-            return (
+      {(showSetupStatusFilter || thematicTags.length > 0) ? (
+        <div className="space-y-2">
+          {showSetupStatusFilter ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-muted mr-1">Estado de ficha:</span>
               <button
-                key={tag}
                 type="button"
-                onClick={() => applyFilter({ tag: active ? "" : tag })}
-                aria-pressed={active}
-                className={`rounded-md px-2.5 py-1 text-xs transition-all duration-150 active:scale-95 ${
-                  active
+                onClick={() =>
+                  applyFilter({
+                    tag:
+                      initialTag.toLowerCase() === PENDING_SETUP_TAG.toLowerCase()
+                        ? ""
+                        : PENDING_SETUP_TAG,
+                  })
+                }
+                aria-pressed={
+                  initialTag.toLowerCase() === PENDING_SETUP_TAG.toLowerCase()
+                }
+                className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
+                  initialTag.toLowerCase() === PENDING_SETUP_TAG.toLowerCase()
                     ? "bg-primary text-on-primary font-medium"
                     : "border border-border bg-ground text-muted hover:text-ink"
                 }`}
               >
-                {tag}
+                Pendiente de datos
               </button>
-            );
-          })}
+            </div>
+          ) : null}
+          {thematicTags.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-muted mr-1">Etiquetas temáticas:</span>
+              {thematicTags.map((tag) => {
+                const active = initialTag.toLowerCase() === tag.toLowerCase();
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => applyFilter({ tag: active ? "" : tag })}
+                    aria-pressed={active}
+                    className={`rounded-md px-2.5 py-1 text-xs transition-colors ${
+                      active
+                        ? "bg-primary text-on-primary font-medium"
+                        : "border border-border bg-ground text-muted hover:text-ink"
+                    }`}
+                  >
+                    {tag}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -213,7 +252,7 @@ export function ConsultantsDirectoryClient({
             {consultants.map((c) => (
               <div
                 key={c.id}
-                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between hover:bg-surface/60 transition-all duration-150"
+                className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between hover:bg-surface/60 transition-colors duration-150"
               >
                 <div className="flex items-start gap-3 min-w-0">
                   <ConsultantAvatar
@@ -247,14 +286,26 @@ export function ConsultantsDirectoryClient({
                       </p>
                     ) : null}
 
-                    {c.tags.length > 0 ? (
+                    {c.tags.some(
+                      (tag) =>
+                        tag.name.toLowerCase() !== PENDING_SETUP_TAG.toLowerCase()
+                    ) ? (
                       <div className="flex flex-wrap gap-1 pt-0.5">
-                        {c.tags.map((t) => (
+                        {c.tags
+                          .filter(
+                            (tag) =>
+                              tag.name.toLowerCase() !==
+                              PENDING_SETUP_TAG.toLowerCase()
+                          )
+                          .map((t) => (
                           <Badge key={t.id} variant="neutral">
                             {t.name}
                           </Badge>
-                        ))}
+                          ))}
                       </div>
+                    ) : null}
+                    {c.needsSetup ? (
+                      <Badge variant="warning">Pendiente de datos</Badge>
                     ) : null}
                   </div>
                 </div>

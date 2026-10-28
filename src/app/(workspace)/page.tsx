@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, CalendarPlus, FilePlus2, UserPlus } from "lucide-react";
 import { ConsultantAvatar } from "@/components/shared/consultant-avatar";
+import { FormattedSessionDateTime } from "@/components/shared/formatted-session-date";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +12,6 @@ import {
 import {
   formatDateLongEs,
   formatDateTimeEs,
-  formatRelativeDayEs,
 } from "@/lib/utils";
 import { listCanonicalCards } from "@/repositories/grimorio-repository";
 import { getDashboardSnapshot } from "@/repositories/readings-repository";
@@ -323,12 +323,10 @@ export default async function HomePage() {
                         ) : null}
                       </div>
 
-                      <time
-                        dateTime={reading.performedAt}
+                      <FormattedSessionDateTime
+                        iso={reading.performedAt}
                         className="shrink-0 text-xs text-muted num-tabular"
-                      >
-                        {formatDateTimeEs(reading.performedAt)}
-                      </time>
+                      />
                     </article>
                   );
                 })}
@@ -405,9 +403,11 @@ export default async function HomePage() {
                           </p>
                         </div>
                       </div>
-                      <span className="shrink-0 text-right text-xs font-medium text-ink num-tabular">
-                        {formatRelativeDayEs(appt.scheduledAt)}
-                      </span>
+                      <FormattedSessionDateTime
+                        iso={appt.scheduledAt}
+                        relative
+                        className="shrink-0 text-right text-xs font-medium text-ink num-tabular"
+                      />
                     </div>
 
                     <p className="break-words text-xs text-muted line-clamp-2">

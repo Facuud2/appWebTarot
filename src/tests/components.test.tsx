@@ -6,6 +6,7 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { AppShell } from "@/components/layout/app-shell";
 import { AppProviders } from "@/components/providers/app-providers";
+import { ArchetypalCardSvg } from "@/components/shared/archetypal-card-svg";
 import { SpreadMap, buildSpreadSlots } from "@/components/shared/spread-map";
 import { TarotCardPlate } from "@/components/shared/tarot-card-plate";
 import { TagInput } from "@/components/ui/tag-input";
@@ -227,7 +228,7 @@ describe("Interactive UI components", () => {
       name: /Carta 1: Pasado, El Ermitaño/i,
     });
     expect(pos1Btn).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("Invertida")).toBeInTheDocument();
+    expect(screen.getByText("Inv.")).toBeInTheDocument();
 
     const pos2Btn = screen.getByRole("button", {
       name: /Carta 2:.*, sin carta/i,
@@ -339,6 +340,12 @@ describe("Interactive UI components", () => {
 
     expect(screen.getByText("La Estrella")).toBeInTheDocument();
     expect(screen.getByText("XVII")).toBeInTheDocument();
+    const staticImage = screen.getByRole("img", {
+      name: /Ilustración de La Estrella/i,
+    });
+    expect(staticImage).toHaveAttribute("src", "/decks/rws/17-la-estrella.webp");
+    expect(staticImage).toHaveAttribute("loading", "lazy");
+    expect(staticImage).toHaveAttribute("decoding", "async");
 
     rerender(
       <TarotCardPlate
@@ -349,9 +356,61 @@ describe("Interactive UI components", () => {
       />
     );
     const img = screen.getByRole("img", {
-      name: /Lámina de La Estrella \(invertida\)/i,
+      name: /Ilustración de La Estrella/i,
     });
     expect(img).toHaveClass("rotate-180");
+    expect(img).toHaveAttribute("src", "/laminas/estrella-propia.jpg");
+  });
+
+  it("renders elemental glyphs in the generated archetypal plate", () => {
+    const aceOfWands = CANONICAL_TAROT_CARDS.find(
+      (card) => card.suit === "wands" && card.rankNumber === 1
+    )!;
+    const { container } = render(<ArchetypalCardSvg card={aceOfWands} />);
+    expect(container.querySelector('path[d="M120 277 111 294h18z"]')).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /Placa arquetípica de As de Bastos/i })).toHaveAttribute(
+      "viewBox",
+      "0 0 240 400"
+    );
+  });
+
+  it("previews a reversed card and navigates to the next occupied position", async () => {
+    const user = userEvent.setup();
+    const hermit = CANONICAL_TAROT_CARDS.find((card) => card.id === "major-09")!;
+    const priestess = CANONICAL_TAROT_CARDS.find((card) => card.id === "major-02")!;
+    const slots = buildSpreadSlots(
+      undefined,
+      [
+        {
+          positionIndex: 1,
+          positionTitle: "Situación actual",
+          card: hermit,
+          orientation: "reversed",
+        },
+        {
+          positionIndex: 2,
+          positionTitle: "Lo que acompaña",
+          card: priestess,
+          orientation: "upright",
+        },
+      ],
+      new Set()
+    );
+
+    render(<SpreadMap slots={slots} />);
+    await user.click(
+      screen.getByRole("button", { name: /Carta 1: Situación actual, El Ermitaño/i })
+    );
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent("Posición 1 · Situación actual");
+    expect(
+      screen.getByRole("img", { name: "Placa arquetípica de El Ermitaño" })
+    ).toHaveClass("rotate-180");
+
+    await user.click(screen.getByRole("button", { name: "Carta siguiente" }));
+    expect(dialog).toHaveTextContent("Posición 2 · Lo que acompaña");
+    expect(dialog).toHaveTextContent("La Sacerdotisa");
   });
 
   it("hydrates AppShell without SSR/client attribute mismatches and restricts hamburger menu strictly to tablet", async () => {

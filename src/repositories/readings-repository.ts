@@ -8,12 +8,14 @@ import {
 } from "@/repositories/consultants-repository";
 import {
   createQuickDeck,
+  ensureUserBuiltinDecks,
   listAvailableDecks,
   listDecks,
   mapCanonicalCardRow,
   type CanonicalCardRow,
 } from "@/repositories/grimorio-repository";
-import { CANONICAL_TAROT_CARDS } from "@/lib/tarot-catalog";
+import { BUILTIN_DECKS, CANONICAL_TAROT_CARDS } from "@/lib/tarot-catalog";
+import { toIsoUtcString } from "@/lib/utils";
 import { getTagsForEntity, syncEntityTags } from "@/repositories/tags-repository";
 import type {
   CreateReadingValues,
@@ -65,6 +67,38 @@ function parseDeckIdsJson(
     result.push(fallbackDeckId.trim());
   }
   return result;
+}
+
+async function resolvePersistedDeckIds(
+  userId: string,
+  requestedDeckIds: string[],
+  db: AppDatabase
+): Promise<string[]> {
+  const normalizedIds = Array.from(
+    new Set(requestedDeckIds.map((id) => id.trim()).filter(Boolean))
+  );
+  const requestedBuiltins = BUILTIN_DECKS.filter((deck) =>
+    normalizedIds.includes(deck.id)
+  );
+
+  if (requestedBuiltins.length > 0) {
+    await ensureUserBuiltinDecks(userId, db);
+  }
+
+  const persistedDecks = await listDecks(userId, db);
+  const persistedIds = new Set(persistedDecks.map((deck) => deck.id));
+  const resolvedIds = normalizedIds.flatMap((id) => {
+    if (persistedIds.has(id)) return [id];
+    const builtin = requestedBuiltins.find((deck) => deck.id === id);
+    const persistedBuiltinId = builtin
+      ? `deck-${builtin.tradition}-${userId}`
+      : null;
+    return persistedBuiltinId && persistedIds.has(persistedBuiltinId)
+      ? [persistedBuiltinId]
+      : [];
+  });
+
+  return Array.from(new Set(resolvedIds));
 }
 
 function parsePositionsJson(
@@ -512,10 +546,7 @@ export async function createReadingDraft(
 ): Promise<ReadingDetail> {
   const id = `read-${randomUUID()}`;
   const nowIso = new Date().toISOString();
-  const parsedDate = new Date(values.performedAt);
-  const performedIso = Number.isNaN(parsedDate.getTime())
-    ? nowIso
-    : parsedDate.toISOString();
+  const performedIso = toIsoUtcString(values.performedAt);
 
   let consultantId = values.consultantId.trim() || null;
   const appointmentId = values.appointmentId.trim() || null;
@@ -540,11 +571,11 @@ export async function createReadingDraft(
     }
   }
 
-  const availableDecks = await listAvailableDecks(userId, db);
-  const userDeckIdsSet = new Set(availableDecks.map((d) => d.id));
-  const selectedExistingDeckIds = values.deckIds
-    .map((d) => d.trim())
-    .filter((d) => d.length > 0 && userDeckIdsSet.has(d));
+  const selectedExistingDeckIds = await resolvePersistedDeckIds(
+    userId,
+    values.deckIds,
+    db
+  );
 
   let spreadTemplateId: string | null = null;
   let resolvedSpreadName = values.spreadName.trim() || "Estructura personalizada";
@@ -661,20 +692,15 @@ export async function updateReadingSession(
   }
 
   const nowIso = new Date().toISOString();
-  const parsedDate = new Date(values.performedAt);
-  const performedIso = Number.isNaN(parsedDate.getTime())
-    ? existing.performedAt
-    : parsedDate.toISOString();
+  const performedIso = values.performedAt
+    ? toIsoUtcString(values.performedAt)
+    : existing.performedAt;
 
   const consultantId = values.consultantId.trim() || null;
-  const availableDecks = await listAvailableDecks(userId, db);
-  const userDeckIdsSet = new Set(availableDecks.map((d) => d.id));
-  const allDeckIds = Array.from(
-    new Set(
-      values.deckIds
-        .map((d) => d.trim())
-        .filter((d) => d.length > 0 && userDeckIdsSet.has(d))
-    )
+  const allDeckIds = await resolvePersistedDeckIds(
+    userId,
+    values.deckIds,
+    db
   );
   const primaryDeckId = allDeckIds[0] ?? null;
   const spreadTemplateId = values.spreadTemplateId.trim() || null;

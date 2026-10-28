@@ -634,6 +634,8 @@ interface DeckRow {
 }
 
 function mapDeckRow(row: DeckRow): Deck {
+  const isBuiltin = row.id === `deck-${row.tradition}-${row.user_id}`;
+
   return {
     id: row.id,
     userId: row.user_id,
@@ -644,6 +646,7 @@ function mapDeckRow(row: DeckRow): Deck {
     description: row.description,
     isDefault: row.is_default === 1,
     needsSetup: row.needs_setup === 1,
+    isBuiltin,
     createdAt: row.created_at,
     readingsCount: Number(row.readings_count ?? 0),
   };
@@ -726,30 +729,49 @@ export async function ensureUserBuiltinDecks(
   db: AppDatabase = getDb(userId)
 ): Promise<void> {
   const checkDeck = db.prepare(
-    "SELECT id FROM decks WHERE user_id = ? AND tradition = ?"
+    "SELECT id, is_default FROM decks WHERE user_id = ? AND id = ?"
+  );
+  const setDefaultDeck = db.prepare(
+    "UPDATE decks SET is_default = 1 WHERE user_id = ? AND id = ?"
+  );
+  const hasDefaultDeckQuery = db.prepare(
+    "SELECT id FROM decks WHERE user_id = ? AND is_default = 1 LIMIT 1"
   );
   const insertDeck = db.prepare(`
     INSERT INTO decks (
       id, user_id, name, tradition, author, card_count, description, is_default, needs_setup, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+    ON CONFLICT(id) DO NOTHING
   `);
 
   const nowIso = new Date().toISOString();
+  let hasDefaultDeck = Boolean(await hasDefaultDeckQuery.get(userId));
   for (const deck of BUILTIN_DECKS) {
-    const existing = await checkDeck.get(userId, deck.tradition);
-    if (!existing) {
-      await insertDeck.run(
-        `deck-${deck.tradition}-${userId}`,
+    const deckId = `deck-${deck.tradition}-${userId}`;
+    const existing = (await checkDeck.get(userId, deckId)) as
+      | { id: string; is_default: number }
+      | undefined;
+    if (existing) {
+      if (!hasDefaultDeck && deck.isDefault) {
+        await setDefaultDeck.run(userId, deckId);
+        hasDefaultDeck = true;
+      }
+      continue;
+    }
+
+    const isDefault = !hasDefaultDeck && deck.isDefault;
+    await insertDeck.run(
+        deckId,
         userId,
         deck.name,
         deck.tradition,
         deck.author,
         deck.cardCount,
         deck.description,
-        deck.isDefault ? 1 : 0,
+        isDefault ? 1 : 0,
         nowIso
       );
-    }
+    if (isDefault) hasDefaultDeck = true;
   }
 }
 

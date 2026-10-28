@@ -6,7 +6,18 @@ import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useTheme } from "next-themes";
 import { useForm, useWatch } from "react-hook-form";
-import { Compass, Download, LogOut, Monitor, Moon, Save, Sun, Upload } from "lucide-react";
+import {
+  CheckCircle2,
+  Compass,
+  Download,
+  LogOut,
+  Monitor,
+  Moon,
+  Save,
+  Smartphone,
+  Sun,
+  Upload,
+} from "lucide-react";
 import { toast } from "sonner";
 import { logoutAction } from "@/actions/auth-actions";
 import {
@@ -24,6 +35,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { usePwaInstall } from "@/components/providers/pwa-install-provider";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,6 +55,7 @@ interface SettingsClientProps {
 export function SettingsClient({ user, decks, spreads }: SettingsClientProps) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
+  const { isStandalone, install } = usePwaInstall();
   const mounted = React.useSyncExternalStore(
     () => () => {},
     () => true,
@@ -284,7 +297,7 @@ export function SettingsClient({ user, decks, spreads }: SettingsClientProps) {
                 [
                   { id: "light", label: "Claro", icon: Sun },
                   { id: "dark", label: "Oscuro", icon: Moon },
-                  { id: "system", label: "Automático", icon: Monitor },
+                  { id: "system", label: "Auto", icon: Monitor },
                 ] as const
               ).map((opt) => {
                 const Icon = opt.icon;
@@ -310,11 +323,12 @@ export function SettingsClient({ user, decks, spreads }: SettingsClientProps) {
           </div>
 
           <div className="rounded-lg border border-border bg-surface p-3.5 text-xs text-muted space-y-1">
-            <p className="font-medium text-ink">Atajo rápido de buscador</p>
+            <p className="font-medium text-ink">Búsqueda rápida</p>
             <p>
-              Pulsa <kbd className="rounded border border-border bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink">⌘K</kbd> o{" "}
+              Toca la lupa de búsqueda en la barra superior o pulsa{" "}
+              <kbd className="rounded border border-border bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink">⌘K</kbd> /{" "}
               <kbd className="rounded border border-border bg-ground px-1.5 py-0.5 font-mono text-[11px] text-ink">Ctrl+K</kbd>{" "}
-              desde cualquier pantalla para buscar al instante una carta, un consultante o una lectura.
+              en escritorio para buscar al instante una carta, un consultante o una lectura.
             </p>
           </div>
         </div>
@@ -395,13 +409,36 @@ export function SettingsClient({ user, decks, spreads }: SettingsClientProps) {
           </p>
         </div>
 
-        <div className="min-w-0 rounded-xl border border-border bg-surface p-4 sm:p-5 space-y-2 text-xs text-muted leading-relaxed">
-          <p className="font-medium text-ink">
-            Aplicación Web Instalable (PWA)
-          </p>
-          <p>
-            Puedes instalar esta aplicación en la pantalla de inicio de tu teléfono o en tu navegador mediante «Instalar aplicación» para usarla a pantalla completa sin distracciones durante las sesiones.
-          </p>
+        <div className="min-w-0 rounded-xl border border-border bg-surface p-4 sm:p-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm font-medium text-ink">
+                Aplicación Web Instalable (PWA)
+              </p>
+              <p className="text-xs leading-relaxed text-muted">
+                Añade Grimorio a la pantalla de inicio y abre tu mesa en modo pantalla completa.
+              </p>
+              {isStandalone ? (
+                <p
+                  role="status"
+                  className="inline-flex items-center gap-1.5 pt-1 text-xs font-medium text-positive"
+                >
+                  <CheckCircle2 className="size-4" aria-hidden="true" />
+                  Aplicación instalada y activa en pantalla completa
+                </p>
+              ) : null}
+            </div>
+            {!isStandalone ? (
+              <Button
+                type="button"
+                onClick={() => void install()}
+                className="w-full shrink-0 gap-2 sm:w-auto"
+              >
+                <Smartphone className="size-4" aria-hidden="true" />
+                Instalar aplicación
+              </Button>
+            ) : null}
+          </div>
         </div>
       </section>
 

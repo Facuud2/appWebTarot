@@ -10,7 +10,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Bookmark, AlertTriangle, ArrowRight } from "lucide-react";
+import { Bookmark, AlertTriangle } from "lucide-react";
 
 interface UnsavedChangesContextValue {
   isDirty: boolean;

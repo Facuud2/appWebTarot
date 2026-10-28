@@ -17,6 +17,7 @@ import {
   createDeck,
   createQuickDeck,
   getGrimorioCardBySlug,
+  listAvailableDecks,
   listDecks,
   listGrimorioCards,
   listSpreadTemplates,
@@ -71,6 +72,51 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     expect(snapshot.incompleteConsultants).toHaveLength(0);
     expect(await listConsultants(user.id, {}, db)).toHaveLength(0);
     expect(await listDecks(user.id, db)).toHaveLength(0);
+  });
+
+  it("persists builtin deck references when a reading selects a virtual deck", async () => {
+    const db = createDatabaseInstance(":memory:", { seedDemo: false });
+    const user = await registerNewUser(
+      {
+        name: "Usuario de mazos",
+        workspaceName: "Mesa de mazos",
+        email: "mazos@limpio.org",
+        password: "clave-segura-123",
+      },
+      db
+    );
+
+    const decks = await listAvailableDecks(user.id, db);
+    expect(decks).toHaveLength(5);
+    expect(decks.every((deck) => deck.isBuiltin)).toBe(true);
+    expect(decks.find((deck) => deck.isDefault)?.tradition).toBe("rws");
+    const defaultDeck = decks.find((deck) => deck.isDefault)!;
+
+    const reading = await createReadingDraft(
+      user.id,
+      {
+        title: "Lectura con mazo integrado",
+        consultantId: "",
+        appointmentId: "",
+        deckIds: [defaultDeck.id],
+        quickNewDecks: [],
+        quickNewConsultant: "",
+        spreadMode: "classic",
+        spreadTemplateId: "spread-triad-observation",
+        spreadName: "Pasado, Presente y Futuro (3 cartas)",
+        customPositions: [],
+        questionIntention: "",
+        sessionContext: "",
+        performedAt: "2026-11-01T00:30:00.000Z",
+      },
+      db
+    );
+
+    expect(reading.decks.map((deck) => deck.tradition)).toEqual(["rws"]);
+    const storedDeck = (await listDecks(user.id, db)).find(
+      (deck) => deck.id === reading.decks[0]?.id
+    );
+    expect(storedDeck?.userId).toBe(user.id);
   });
 
   it("enforces strict user isolation between private accounts and demo data", async () => {
@@ -784,4 +830,3 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     expect(list[0]?.consultantDisplayName).toBe("Mateo");
   });
 });
-

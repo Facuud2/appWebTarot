@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm, useWatch } from "react-hook-form";
-import { Save } from "lucide-react";
+import { ImagePlus, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { savePersonalCardEntryAction } from "@/actions/grimorio-actions";
 import { Button } from "@/components/ui/button";
@@ -13,8 +13,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TagInput } from "@/components/ui/tag-input";
 import { Textarea } from "@/components/ui/textarea";
+import { VoiceMicButton } from "@/components/ui/voice-mic-button";
+import { TarotCardPlate } from "@/components/shared/tarot-card-plate";
+import {
+  compressAndStoreCardImage,
+  removeStoredCardImage,
+} from "@/lib/card-image-store";
 import { DECK_TRADITION_LABELS } from "@/lib/constants";
 import { formatDateTimeEs } from "@/lib/utils";
+import { appendVoiceTranscript } from "@/lib/voice-normalizer";
 import {
   personalCardEntrySchema,
   type PersonalCardEntryValues,
@@ -37,6 +44,7 @@ export function CardDetailEditor({
   const router = useRouter();
   const [selectedDeckId, setSelectedDeckId] = React.useState<string>("");
   const [isPending, startTransition] = React.useTransition();
+  const [isSavingCardImage, setIsSavingCardImage] = React.useState(false);
 
   const matchingEntry = React.useMemo(() => {
     const normalized = selectedDeckId.trim() || null;
@@ -90,6 +98,44 @@ export function CardDetailEditor({
     control: form.control,
     name: "logEvolutionEntry",
   });
+
+  const handleCardImageChange = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsSavingCardImage(true);
+    try {
+      await compressAndStoreCardImage(card.deckTradition, card.id, file);
+      toast.success("Imagen guardada en este dispositivo.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "No se pudo guardar la imagen en este dispositivo."
+      );
+    } finally {
+      setIsSavingCardImage(false);
+      event.target.value = "";
+    }
+  };
+
+  const handleRemoveCardImage = async () => {
+    setIsSavingCardImage(true);
+    try {
+      await removeStoredCardImage(card.deckTradition, card.id);
+      toast.success("Se restableció la imagen arquetípica.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "No se pudo quitar la imagen del dispositivo."
+      );
+    } finally {
+      setIsSavingCardImage(false);
+    }
+  };
 
   const onSubmit = form.handleSubmit((values) => {
     startTransition(async () => {
@@ -146,10 +192,64 @@ export function CardDetailEditor({
       </div>
 
       <form onSubmit={onSubmit} className="space-y-4">
+        <div className="flex items-center gap-4 rounded-lg bg-surface p-3">
+          <TarotCardPlate
+            card={card}
+            variant="thumbnail"
+            customImageUrl={matchingEntry?.customImageUrl}
+          />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Label htmlFor="card-local-image">
+              Imagen personal en este dispositivo
+            </Label>
+            <p className="text-xs text-muted">
+              Se convierte a WebP y se conserva en el navegador, sin subirla a la base de datos.
+            </p>
+            <Input
+              id="card-local-image"
+              type="file"
+              accept="image/*"
+              onChange={handleCardImageChange}
+              disabled={isSavingCardImage}
+              className="h-auto min-h-10 py-2 text-xs"
+            />
+            <div className="flex flex-wrap gap-2">
+              <span className="inline-flex items-center gap-1 text-[11px] text-muted">
+                <ImagePlus className="size-3.5" aria-hidden="true" />
+                {isSavingCardImage ? "Procesando imagen…" : "Almacenamiento local"}
+              </span>
+              <button
+                type="button"
+                onClick={handleRemoveCardImage}
+                disabled={isSavingCardImage}
+                className="inline-flex min-h-9 items-center gap-1 text-xs text-muted hover:text-ink disabled:opacity-50"
+              >
+                <Trash2 className="size-3.5" aria-hidden="true" />
+                Quitar imagen local
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div className="space-y-1.5">
-          <Label htmlFor="card-personal-meaning">
-            Significado personal al derecho
-          </Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="card-personal-meaning">
+              Significado personal al derecho
+            </Label>
+            <VoiceMicButton
+              fieldLabel="significado personal"
+              onTranscript={(chunk) =>
+                form.setValue(
+                  "personalMeaning",
+                  appendVoiceTranscript(
+                    form.getValues("personalMeaning"),
+                    chunk
+                  ),
+                  { shouldDirty: true }
+                )
+              }
+            />
+          </div>
           <Textarea
             id="card-personal-meaning"
             rows={4}
@@ -164,9 +264,24 @@ export function CardDetailEditor({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="card-reversed-meaning">
-            Lectura personal invertida o bloqueada
-          </Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="card-reversed-meaning">
+              Lectura personal invertida o bloqueada
+            </Label>
+            <VoiceMicButton
+              fieldLabel="lectura personal invertida"
+              onTranscript={(chunk) =>
+                form.setValue(
+                  "reversedMeaning",
+                  appendVoiceTranscript(
+                    form.getValues("reversedMeaning"),
+                    chunk
+                  ),
+                  { shouldDirty: true }
+                )
+              }
+            />
+          </div>
           <Textarea
             id="card-reversed-meaning"
             rows={3}
@@ -176,9 +291,24 @@ export function CardDetailEditor({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="card-symbols">
-            Símbolos, gestos y asociaciones visuales propias
-          </Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="card-symbols">
+              Símbolos, gestos y asociaciones visuales propias
+            </Label>
+            <VoiceMicButton
+              fieldLabel="símbolos y asociaciones de la carta"
+              onTranscript={(chunk) =>
+                form.setValue(
+                  "symbolsAssociations",
+                  appendVoiceTranscript(
+                    form.getValues("symbolsAssociations"),
+                    chunk
+                  ),
+                  { shouldDirty: true }
+                )
+              }
+            />
+          </div>
           <Textarea
             id="card-symbols"
             rows={3}
@@ -200,9 +330,21 @@ export function CardDetailEditor({
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="card-reflections">
-            Notas de estudio y observaciones
-          </Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="card-reflections">
+              Notas de estudio y observaciones
+            </Label>
+            <VoiceMicButton
+              fieldLabel="notas de estudio"
+              onTranscript={(chunk) =>
+                form.setValue(
+                  "reflections",
+                  appendVoiceTranscript(form.getValues("reflections"), chunk),
+                  { shouldDirty: true }
+                )
+              }
+            />
+          </div>
           <Textarea
             id="card-reflections"
             rows={3}

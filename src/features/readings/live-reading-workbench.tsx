@@ -553,10 +553,22 @@ export function LiveReadingWorkbench({
           orientation: sl.orientation,
           coordX: sl.coordX,
           coordY: sl.coordY,
+          observationNotes: sl.observationNotes,
+          contextualInterpretation: sl.contextualInterpretation,
+          personalTakeaway: sl.personalTakeaway,
+          events: events
+            .filter((event) => event.linkedPositionIndex === sl.positionIndex)
+            .map((event) => ({
+              phenomenonType: event.phenomenonType,
+              customPhenomenonLabel: event.customPhenomenonLabel,
+              occurredPhase: event.occurredPhase,
+              observationDescription: event.observationDescription,
+              personalInterpretation: event.personalInterpretation,
+            })),
         })),
         eventPositionsSet
       ),
-    [slots, cardById, eventPositionsSet]
+    [slots, cardById, eventPositionsSet, events]
   );
 
   const markDirty = () => {
@@ -1174,12 +1186,17 @@ export function LiveReadingWorkbench({
                 </div>
               </div>
               {tags.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5 border-t border-border pt-3">
-                  {tags.map((tag) => (
-                    <Badge key={tag} variant="neutral">
-                      {tag}
-                    </Badge>
-                  ))}
+                <div className="space-y-2 border-t border-border pt-3">
+                  <h2 className="text-xs font-semibold text-ink">
+                    Etiquetas temáticas
+                  </h2>
+                  <div className="flex flex-wrap gap-1.5">
+                    {tags.map((tag) => (
+                      <Badge key={tag} variant="neutral">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
               ) : null}
             </section>
@@ -1327,6 +1344,12 @@ export function LiveReadingWorkbench({
                 onSelectPosition={setActivePositionIndex}
                 editable
                 onMovePosition={handleMoveMapPosition}
+                onPreviewNotesChange={(positionIndex, field, value) =>
+                  updateSlot(positionIndex, (slot) => ({
+                    ...slot,
+                    [field]: value,
+                  }))
+                }
               />
             </section>
 
@@ -1667,7 +1690,7 @@ export function LiveReadingWorkbench({
                             type="button"
                             onClick={() => selectSlotByPosition(s.positionIndex)}
                             className={cn(
-                              "inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-all select-none",
+                              "inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition-[color,background-color,border-color,box-shadow,transform] select-none",
                               isCurrent
                                 ? "bg-ink text-ground shadow-xs ring-2 ring-accent/60 scale-[1.02]"
                                 : "bg-ground border border-border text-ink hover:border-ink/60"
@@ -1713,7 +1736,7 @@ export function LiveReadingWorkbench({
                         initial="enter"
                         animate="center"
                         exit="exit"
-                        className="rounded-2xl border border-accent/40 bg-ground p-4 sm:p-5 shadow-sm space-y-4 will-change-transform"
+                        className="rounded-2xl border border-accent/40 bg-ground p-4 sm:p-5 space-y-4 will-change-transform"
                       >
                         {/* Position Header Row */}
                         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3">
@@ -2209,6 +2232,12 @@ export function LiveReadingWorkbench({
                 onSelectPosition={handleSelectMapPosition}
                 editable
                 onMovePosition={handleMoveMapPosition}
+                onPreviewNotesChange={(positionIndex, field, value) =>
+                  updateSlot(positionIndex, (slot) => ({
+                    ...slot,
+                    [field]: value,
+                  }))
+                }
               />
 
               {/* Botones de gestión directa bajo la mesa */}
