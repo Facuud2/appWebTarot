@@ -26,6 +26,7 @@ interface Step3DeckProps {
   isExploringMode: boolean;
   onSelectDeck: (deckId: string | null, isExploring: boolean) => void;
   onDeckCreated: (newDeck: Deck) => void;
+  onOpenCreateDeck?: () => void;
 }
 
 export function Step3Deck({
@@ -34,6 +35,7 @@ export function Step3Deck({
   isExploringMode,
   onSelectDeck,
   onDeckCreated,
+  onOpenCreateDeck,
 }: Step3DeckProps) {
   // Deduplicación estricta para garantizar que cada mazo canónico o personalizado aparezca exactamente una vez
   const uniqueDecks = React.useMemo(() => {
@@ -87,7 +89,6 @@ export function Step3Deck({
 
       toast.success(`Mazo «${res.data.name}» agregado con éxito.`);
       onDeckCreated(res.data);
-      onSelectDeck(res.data.id, false);
       setIsDialogOpen(false);
       setDeckName("");
       setDeckAuthor("");
@@ -183,7 +184,10 @@ export function Step3Deck({
         {/* Opción Sumar mi propio mazo */}
         <button
           type="button"
-          onClick={() => setIsDialogOpen(true)}
+          onClick={() => {
+            onOpenCreateDeck?.();
+            setIsDialogOpen(true);
+          }}
           className="t-card-interactive flex items-center gap-3.5 rounded-xl border border-dashed border-border bg-ground p-4 text-left hover:border-accent hover:bg-accent/5 transition-colors outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-ink">
@@ -239,6 +243,11 @@ export function Step3Deck({
           </div>
         </button>
       </div>
+
+      <p className="text-center text-[11px] text-muted leading-relaxed">
+        Al elegir un mazo continuarás automáticamente al siguiente paso. Si
+        prefieres registrar el tuyo, usa «Sumar mi propio mazo» antes de elegir.
+      </p>
 
       {/* Diálogo integrado para nuevo mazo */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>

@@ -15,8 +15,10 @@ import {
   AGENDA_DEMO_STAGES,
 } from "@/features/onboarding/components/step-4-agenda-demo";
 import { Step5ReadingTutorial } from "@/features/onboarding/components/step-5-reading-tutorial";
-import { Step6Summary } from "@/features/onboarding/components/step-6-summary";
+import { Step6InstallApp } from "@/features/onboarding/components/step-6-install-app";
+import { Step7Summary } from "@/features/onboarding/components/step-7-summary";
 import { Button } from "@/components/ui/button";
+import { usePwaInstall } from "@/components/providers/pwa-install-provider";
 import { cn } from "@/lib/utils";
 import type {
   CanonicalCard,
@@ -36,12 +38,15 @@ interface OnboardingWizardProps {
   isReviewMode?: boolean;
 }
 
+const TOTAL_STEPS = 7;
+
 const STEP_TITLES = [
   "Nivel de experiencia",
   "Finalidad de uso",
   "Mazo de tarot principal",
   "Gestión de citas y turnos",
   "Primera lectura guiada",
+  "Instalación de la aplicación",
   "Resumen y bienvenida",
 ];
 
@@ -86,6 +91,18 @@ export function OnboardingWizard({
   const [agendaDemoStep, setAgendaDemoStep] = React.useState<number>(1);
   const [agendaSubDirection, setAgendaSubDirection] = React.useState<"forward" | "backward">("forward");
   const scrollRootRef = React.useRef<HTMLDivElement>(null);
+  const pendingAdvanceRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const { install } = usePwaInstall();
+
+  React.useEffect(() => {
+    return () => {
+      if (pendingAdvanceRef.current) {
+        clearTimeout(pendingAdvanceRef.current);
+      }
+    };
+  }, []);
 
   React.useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -126,8 +143,7 @@ export function OnboardingWizard({
   const persistProgress = async (partial: Partial<UserOnboardingState>) => {
     setIsSaving(true);
     try {
-      const nextState = { ...onboardingState, ...partial };
-      setOnboardingState(nextState);
+      setOnboardingState((prev) => ({ ...prev, ...partial }));
 
       const res = await saveOnboardingProgressAction(partial);
       if (!res.ok) {
@@ -140,9 +156,31 @@ export function OnboardingWizard({
     }
   };
 
+  const cancelPendingAdvance = () => {
+    if (pendingAdvanceRef.current) {
+      clearTimeout(pendingAdvanceRef.current);
+      pendingAdvanceRef.current = null;
+    }
+  };
+
+  // Los pasos de selección simple avanzan solos tras confirmar la elección.
+  const advanceWithSelection = (partial: Partial<UserOnboardingState>) => {
+    if (isSaving) return;
+    cancelPendingAdvance();
+    setStepDirection("forward");
+    setOnboardingState((prev) => ({ ...prev, ...partial }));
+
+    const nextStep = onboardingState.currentStep + 1;
+    pendingAdvanceRef.current = setTimeout(() => {
+      pendingAdvanceRef.current = null;
+      void persistProgress({ ...partial, currentStep: nextStep });
+    }, 240);
+  };
+
   // Avanzar al siguiente paso con deslizamiento iOS
   const handleNext = async () => {
-    if (onboardingState.currentStep >= 6) return;
+    cancelPendingAdvance();
+    if (onboardingState.currentStep >= TOTAL_STEPS) return;
     setStepDirection("forward");
     const nextStep = onboardingState.currentStep + 1;
     await persistProgress({ currentStep: nextStep });
@@ -150,14 +188,46 @@ export function OnboardingWizard({
 
   // Retroceder al paso anterior con deslizamiento inverso
   const handlePrev = async () => {
+    cancelPendingAdvance();
     if (onboardingState.currentStep <= 1) return;
     setStepDirection("backward");
     const prevStep = onboardingState.currentStep - 1;
     await persistProgress({ currentStep: prevStep });
   };
 
+  // Instalar la PWA: primero se completa el onboarding para que la app
+  // instalada abra directamente la mesa y no vuelva a pedir el tutorial.
+  const handleInstallApp = async () => {
+    if (isSaving) return;
+    cancelPendingAdvance();
+    setIsSaving(true);
+    try {
+      const res = await completeOnboardingAction();
+      if (!res.ok) {
+        toast.error(res.error || "No se pudo preparar la instalación.");
+        return;
+      }
+
+      await install();
+
+      setStepDirection("forward");
+      await persistProgress({ currentStep: 7 });
+    } catch {
+      toast.error("No se pudo iniciar la instalación de la aplicación.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSkipInstall = async () => {
+    cancelPendingAdvance();
+    setStepDirection("forward");
+    await persistProgress({ currentStep: 7 });
+  };
+
   // Completar onboarding
   const handleComplete = async () => {
+    cancelPendingAdvance();
     setIsCompleting(true);
     try {
       const res = await completeOnboardingAction();
@@ -176,34 +246,14 @@ export function OnboardingWizard({
     }
   };
 
-  // Validación para habilitar el botón "Siguiente"
+  // Validación para habilitar el botón "Siguiente" del paso de preferencias
   const isNextDisabled = React.useMemo(() => {
     if (isSaving) return true;
-    switch (onboardingState.currentStep) {
-      case 1:
-        return !onboardingState.experienceLevel;
-      case 2:
-        return onboardingState.usagePurposes.length === 0;
-      case 3:
-        // Debe haber elegido un mazo o marcado "Todavía estoy explorando"
-        return !onboardingState.selectedDeckId && !isExploringDeck;
-      case 4:
-        return false; // El paso 4 tiene sus propios botones
-      case 5:
-        return false; // El paso 5 tiene sus propios botones
-      case 6:
-        return false;
-      default:
-        return false;
+    if (onboardingState.currentStep === 2) {
+      return onboardingState.usagePurposes.length === 0;
     }
-  }, [
-    isSaving,
-    onboardingState.currentStep,
-    onboardingState.experienceLevel,
-    onboardingState.usagePurposes,
-    onboardingState.selectedDeckId,
-    isExploringDeck,
-  ]);
+    return false;
+  }, [isSaving, onboardingState.currentStep, onboardingState.usagePurposes]);
 
   return (
     <div ref={scrollRootRef} className="min-h-dvh bg-ground flex flex-col justify-between">
@@ -247,14 +297,14 @@ export function OnboardingWizard({
           {/* Indicador de paso actual */}
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted hidden sm:inline">
-              Paso {onboardingState.currentStep} de 6 ·{" "}
+              Paso {onboardingState.currentStep} de {TOTAL_STEPS} ·{" "}
               <span className="text-ink font-medium">
                 {STEP_TITLES[onboardingState.currentStep - 1]}
               </span>
             </span>
 
             <span className="text-xs text-muted sm:hidden">
-              {onboardingState.currentStep}/6
+              {onboardingState.currentStep}/{TOTAL_STEPS}
             </span>
 
             {isReviewMode && (
@@ -276,18 +326,20 @@ export function OnboardingWizard({
 
         {/* Barra de progreso segmentada */}
         <div className="mx-auto max-w-4xl pt-2 space-y-2">
-          <div className="grid grid-cols-6 gap-1 h-1">
-            {[1, 2, 3, 4, 5, 6].map((s) => (
-              <div
-                key={s}
-                className={cn(
-                  "rounded-full transition-colors duration-300",
-                  s <= onboardingState.currentStep
-                    ? "bg-accent"
-                    : "bg-surface-raised border border-border/50"
-                )}
-              />
-            ))}
+          <div className="grid grid-cols-7 gap-1 h-1">
+            {Array.from({ length: TOTAL_STEPS }, (_, index) => index + 1).map(
+              (s) => (
+                <div
+                  key={s}
+                  className={cn(
+                    "rounded-full transition-colors duration-300",
+                    s <= onboardingState.currentStep
+                      ? "bg-accent"
+                      : "bg-surface-raised border border-border/50"
+                  )}
+                />
+              )
+            )}
           </div>
 
           {/* Sub barra de otro color para las 5 etapas del paso 4 */}
@@ -348,7 +400,9 @@ export function OnboardingWizard({
             {onboardingState.currentStep === 1 && (
               <Step1Experience
                 value={onboardingState.experienceLevel}
-                onChange={(level) => persistProgress({ experienceLevel: level })}
+                onChange={(level) =>
+                  advanceWithSelection({ experienceLevel: level })
+                }
               />
             )}
 
@@ -368,17 +422,16 @@ export function OnboardingWizard({
                 isExploringMode={isExploringDeck}
                 onSelectDeck={(deckId, isExploring) => {
                   setIsExploringDeck(isExploring);
-                  persistProgress({
-                    selectedDeckId: deckId,
-                  });
+                  advanceWithSelection({ selectedDeckId: deckId });
                 }}
                 onDeckCreated={(newDeck) => {
                   setDecks((prev) => [newDeck, ...prev]);
-                  persistProgress({
+                  advanceWithSelection({
                     customDeckCreatedId: newDeck.id,
                     selectedDeckId: newDeck.id,
                   });
                 }}
+                onOpenCreateDeck={cancelPendingAdvance}
               />
             )}
 
@@ -443,7 +496,23 @@ export function OnboardingWizard({
             )}
 
             {onboardingState.currentStep === 6 && (
-              <Step6Summary
+              <Step6InstallApp
+                isSubmitting={isSaving}
+                isReviewMode={isReviewMode}
+                onInstall={() => {
+                  void handleInstallApp();
+                }}
+                onContinueWithoutInstall={() => {
+                  void handleSkipInstall();
+                }}
+                onBack={() => {
+                  void handlePrev();
+                }}
+              />
+            )}
+
+            {onboardingState.currentStep === 7 && (
+              <Step7Summary
                 workspaceName={user.workspaceName}
                 onboardingState={onboardingState}
                 selectedDeck={selectedDeck}
@@ -455,14 +524,14 @@ export function OnboardingWizard({
         </div>
       </main>
 
-      {/* BARRA INFERIOR DE NAVEGACIÓN (Pasos 1, 2, 3) */}
-      {[1, 2, 3].includes(onboardingState.currentStep) && (
+      {/* BARRA INFERIOR DE NAVEGACIÓN (Paso de preferencias y Paso 3) */}
+      {[2, 3].includes(onboardingState.currentStep) && (
         <footer className="border-t border-border bg-ground px-4 py-4 sm:px-8">
           <div className="mx-auto max-w-3xl flex items-center justify-between gap-4">
             <Button
               type="button"
               variant="ghost"
-              disabled={onboardingState.currentStep === 1 || isSaving}
+              disabled={isSaving}
               onClick={handlePrev}
               className="gap-2 text-xs text-muted hover:text-ink"
             >
@@ -470,16 +539,18 @@ export function OnboardingWizard({
               <span>Anterior</span>
             </Button>
 
-            <Button
-              type="button"
-              variant="primary"
-              disabled={isNextDisabled}
-              onClick={handleNext}
-              className="gap-2"
-            >
-              <span>{isSaving ? "Guardando…" : "Siguiente"}</span>
-              <ArrowRight className="size-4" />
-            </Button>
+            {onboardingState.currentStep === 2 ? (
+              <Button
+                type="button"
+                variant="primary"
+                disabled={isNextDisabled}
+                onClick={handleNext}
+                className="gap-2"
+              >
+                <span>{isSaving ? "Guardando…" : "Siguiente"}</span>
+                <ArrowRight className="size-4" />
+              </Button>
+            ) : null}
           </div>
         </footer>
       )}

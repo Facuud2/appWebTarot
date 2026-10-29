@@ -1,0 +1,103 @@
+import { test, expect } from "../fixtures/test";
+import {
+  emitSpeech,
+  emitSpeechError,
+  expectedOs,
+  getLastRecognition,
+  mockSpeechRecognition,
+} from "../fixtures/device";
+
+async function openStepOne(page: import("@playwright/test").Page) {
+  await page.goto("/lecturas/nueva");
+  await expect(
+    page.getByRole("heading", { name: /Paso 1: Configuración y Estructura/i })
+  ).toBeVisible();
+  // Da tiempo a que React hidrate los handlers del dictado.
+  await page.waitForTimeout(500);
+}
+
+test.describe("Dictado por voz @device", () => {
+  test("activa el micrófono con el modo continuo de cada plataforma", async ({
+    page,
+    account,
+  }, testInfo) => {
+    void account;
+    await mockSpeechRecognition(page);
+    await openStepOne(page);
+
+    await page
+      .getByRole("button", { name: /Iniciar dictado por voz/i })
+      .first()
+      .click();
+
+    await expect(
+      page.getByRole("button", { name: /Detener dictado por voz/i }).first()
+    ).toBeVisible();
+    await expect(page.getByText("Escuchando…").first()).toBeVisible();
+
+    const recognition = await getLastRecognition(page);
+    expect(recognition).not.toBeNull();
+    expect(recognition?.lang).toBe("es-AR");
+    // Android reinicia el reconocimiento en cada frase; iOS y desktop usan
+    // una sesión continua.
+    expect(recognition?.continuous).toBe(
+      expectedOs(testInfo.project.name) !== "android"
+    );
+  });
+
+  test("vuelca la transcripción final y el texto provisional en la pregunta", async ({
+    page,
+    account,
+  }) => {
+    void account;
+    await mockSpeechRecognition(page);
+    await openStepOne(page);
+
+    const question = page.getByLabel(/Pregunta o tema de la consulta/i);
+    await page
+      .getByRole("button", { name: /Iniciar dictado por voz/i })
+      .first()
+      .click();
+
+    await emitSpeech(page, "el loco");
+    await expect(question).toHaveValue(/El Loco/);
+
+    await emitSpeech(page, "y la emperatriz", false);
+    await expect(page.getByText(/y la emperatriz/i).first()).toBeVisible();
+    await expect(question).toHaveValue(/El Loco/);
+
+    await page
+      .getByRole("button", { name: /Detener dictado por voz/i })
+      .first()
+      .click();
+    await expect(
+      page.getByRole("button", { name: /Iniciar dictado por voz/i }).first()
+    ).toBeVisible();
+  });
+
+  test("muestra el error cuando el navegador niega el micrófono", async ({
+    page,
+    account,
+  }) => {
+    void account;
+    await mockSpeechRecognition(page);
+    await openStepOne(page);
+
+    await page
+      .getByRole("button", { name: /Iniciar dictado por voz/i })
+      .first()
+      .click();
+    await expect(
+      page.getByRole("button", { name: /Detener dictado por voz/i }).first()
+    ).toBeVisible();
+
+    await emitSpeechError(page, "not-allowed");
+
+    await expect(
+      page.getByText(/El navegador no tiene permiso para usar el micrófono/i)
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Iniciar dictado por voz/i }).first()
+    ).toBeVisible();
+  });
+});

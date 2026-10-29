@@ -11,7 +11,12 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test --project=desktop-chrome --project=pixel-7 --project=galaxy-s24 --project=iphone-se --project=iphone-15 --project=ipad-pro-11 --project=ipados-real-ua",
+    "test:e2e:smoke": "playwright test --grep @smoke --project=desktop-chrome --project=pixel-7 --project=iphone-15",
+    "test:e2e:device": "playwright test --grep @device",
+    "test:e2e:android": "playwright test --project=pixel-7 --project=galaxy-s24 --project=galaxy-a55 --project=galaxy-tab-s9",
+    "test:e2e:ios": "playwright test --project=iphone-se --project=iphone-15 --project=ipad-pro-11 --project=ipados-real-ua",
+    "test:e2e:full": "playwright test",
     "export:turso": "node ./scripts/export-turso-schema.mjs"
   },
   "dependencies": {

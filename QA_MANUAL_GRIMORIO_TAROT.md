@@ -13,7 +13,7 @@
 
 La plataforma **Grimorio Tarot** en su versión publicada en producción presenta una propuesta de producto diferencial, caracterizada por un diseño visual editorial sobresaliente, una experiencia tipográfica cuidada, coherencia conceptual con la práctica del tarot y una accesibilidad técnica ejemplar (puntuación perfecta de **100/100 en Lighthouse** en Accesibilidad, Buenas Prácticas y SEO).
 
-El flujo de **Onboarding de 6 pasos** y la mesa interactiva de lectura (`LiveReadingWorkbench`) proporcionan un soporte muy intuitivo y potente para registrar lecturas tanto presenciales como a distancia.
+El flujo de **Onboarding de 7 pasos** y la mesa interactiva de lectura (`LiveReadingWorkbench`) proporcionan un soporte muy intuitivo y potente para registrar lecturas tanto presenciales como a distancia.
 
 No obstante, la auditoría ha identificado **dos defectos críticos (P0)** y **dos defectos de alta prioridad (P1)** derivados principalmente de la interacción entre la arquitectura Serverless de Vercel y el manejo de persistencia:
 
@@ -46,7 +46,7 @@ No obstante, la auditoría ha identificado **dos defectos críticos (P0)** y **d
    - Registro de nueva cuenta con validaciones de formulario.
    - Inicio de sesión con correo y contraseña.
 2. **Onboarding Guiado (`/onboarding`):**
-   - 6 pasos interactivos: Configuración de espacio, elección de mazo, tirada inicial guiada, interpretación en vivo, sincronización de notas y finalización.
+   - 7 pasos interactivos: Configuración de espacio, elección de mazo, tirada inicial guiada, interpretación en vivo, instalación de la PWA, sincronización de notas y finalización.
 3. **Mesa de Lectura en Vivo (`/lecturas/en-vivo` y `/lecturas/[id]`):**
    - Lienzo interactivo (`LiveReadingWorkbench`) con disposición geométrica de cartas (Cruz Celta, Tríadas, etc.).
    - Selector de orientación de arcanos (Al derecho / Invertida).
@@ -81,7 +81,7 @@ No obstante, la auditoría ha identificado **dos defectos críticos (P0)** y **d
 | **GT-UX-004** | Tema | Conmutador Claro / Oscuro / Sistema | Visual / UX | **APROBADA** | N/A |
 | **GT-FUNC-001** | Demo | Crear lectura en Modo Demostración | Funcional | **FALLIDA** | **P0** |
 | **GT-FUNC-002** | Auth | Registro de usuario real en base de datos Turso | Funcional | **APROBADA** | N/A |
-| **GT-FUNC-003** | Onboarding | Flujo completo de 6 pasos con tirada guiada | Funcional / UX | **APROBADA** | N/A |
+| **GT-FUNC-003** | Onboarding | Flujo completo de 7 pasos con tirada guiada e instalación PWA | Funcional / UX | **APROBADA** | N/A |
 | **GT-FUNC-004** | Persistencia | Guardado de lectura de onboarding en base de datos | Funcional | **APROBADA** | N/A |
 | **GT-FUNC-005** | Mesa viva | Registro de evento ("Saltó al mezclar") | Funcional | **APROBADA** | N/A |
 | **GT-FUNC-006** | Mesa viva | Guardado de notas por arcano asociadas al grimorio | Funcional | **APROBADA** | N/A |

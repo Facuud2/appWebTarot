@@ -447,7 +447,7 @@ export function SettingsClient({ user, decks, spreads }: SettingsClientProps) {
         <div className="space-y-1">
           <h2 className="text-sm font-semibold text-ink">Tutorial de inicio</h2>
           <p className="text-xs text-muted leading-relaxed">
-            Puedes volver a explorar el tutorial guiado de 6 pasos y ajustar tus preferencias iniciales.
+            Puedes volver a explorar el tutorial guiado de 7 pasos y ajustar tus preferencias iniciales.
           </p>
         </div>
 

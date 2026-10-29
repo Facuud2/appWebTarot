@@ -231,7 +231,7 @@ export async function completeUserOnboarding(
     userId,
     {
       completed: true,
-      currentStep: 6,
+      currentStep: 7,
       completedAt: new Date().toISOString(),
     },
     db

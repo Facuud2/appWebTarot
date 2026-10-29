@@ -12,7 +12,7 @@ import { requireUser } from "@/server/session";
 export const metadata: Metadata = {
   title: "Bienvenido a Grimorio Tarot · Tutorial inicial",
   description:
-    "Configura tus preferencias, conoce las herramientas esenciales y prepara tu mesa de trabajo.",
+    "Configura tus preferencias, conoce las herramientas esenciales, instala la aplicación y prepara tu mesa de trabajo.",
 };
 
 export default async function OnboardingPage(props: {

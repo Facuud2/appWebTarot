@@ -1,3 +1,5 @@
+"use client";
+
 import * as React from "react";
 import { ArchetypalCardSvg } from "@/components/shared/archetypal-card-svg";
 import { useCardImage } from "@/lib/card-image-store";

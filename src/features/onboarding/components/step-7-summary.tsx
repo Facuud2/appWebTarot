@@ -11,7 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import type { Deck, UserOnboardingState } from "@/types/domain";
 
-interface Step6SummaryProps {
+interface Step7SummaryProps {
   workspaceName: string;
   onboardingState: UserOnboardingState;
   selectedDeck: Deck | null;
@@ -19,13 +19,13 @@ interface Step6SummaryProps {
   isCompleting: boolean;
 }
 
-export function Step6Summary({
+export function Step7Summary({
   workspaceName,
   onboardingState,
   selectedDeck,
   onComplete,
   isCompleting,
-}: Step6SummaryProps) {
+}: Step7SummaryProps) {
   return (
     <div className="space-y-8 t-fade-rise">
       {/* Encabezado editorial */}

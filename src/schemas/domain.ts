@@ -455,7 +455,7 @@ export const onboardingReadingTargetTypeSchema = z.enum([
 ]);
 
 export const onboardingProgressSchema = z.object({
-  currentStep: z.number().int().min(1).max(6).optional(),
+  currentStep: z.number().int().min(1).max(7).optional(),
   experienceLevel: onboardingExperienceLevelSchema.nullable().optional(),
   usagePurposes: z.array(z.string()).optional(),
   selectedDeckId: z.string().nullable().optional(),

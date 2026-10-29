@@ -67,7 +67,7 @@ export function parseOnboardingState(
       currentStep:
         typeof r.currentStep === "number" &&
         r.currentStep >= 1 &&
-        r.currentStep <= 6
+        r.currentStep <= 7
           ? r.currentStep
           : 1,
       experienceLevel:

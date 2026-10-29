@@ -638,7 +638,7 @@ export async function seedDemoWorkspaceIfMissing(db: AppDatabase): Promise<void>
         autosaveReadings: true,
         onboarding: {
           completed: true,
-          currentStep: 6,
+          currentStep: 7,
           experienceLevel: "professional",
           usagePurposes: [
             "client_sessions",

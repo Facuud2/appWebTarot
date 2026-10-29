@@ -119,6 +119,10 @@ export function Step1Experience({ value, onChange }: Step1ExperienceProps) {
           );
         })}
       </div>
+
+      <p className="text-center text-[11px] text-muted leading-relaxed">
+        Al elegir una opción continuarás automáticamente al siguiente paso.
+      </p>
     </div>
   );
 }

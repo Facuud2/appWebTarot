@@ -419,7 +419,11 @@ export function AppShell({
           id="contenido-principal"
           tabIndex={-1}
           className={cn(
-            "standalone-safe-main t-page-enter mx-auto w-full min-w-0 max-w-[1160px] px-4 py-5 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] sm:px-6 sm:py-8 lg:px-10 lg:py-9 lg:pb-12 outline-none overflow-x-hidden",
+            // El padding inferior debe superar la altura de `app-bottom-nav`
+            // (visible hasta `md`) en todo el rango móvil/tablet. `sm:py-8`
+            // pisaba el `pb` y dejaba los botones del pie detrás de la barra
+            // en viewports de 640–767px.
+            "standalone-safe-main t-page-enter mx-auto w-full min-w-0 max-w-[1160px] px-4 pt-5 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] sm:px-6 sm:pt-8 lg:px-10 lg:pt-9 lg:pb-12 outline-none overflow-x-hidden",
             keyboardOpen && "pb-5"
           )}
         >

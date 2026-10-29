@@ -1,9 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { X, Download } from "lucide-react";
-import { usePathname } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { useDeviceEnvironment } from "@/components/providers/device-environment-provider";
 import { PwaInstallDialog } from "@/components/shared/pwa-install-dialog";
 
@@ -91,7 +88,6 @@ export function PwaInstallProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const pathname = usePathname();
   const { profile } = useDeviceEnvironment();
   const isStandalone = profile.isStandalone;
   const platform = getPwaPlatform(profile.os, profile.browser);
@@ -100,9 +96,6 @@ export function PwaInstallProvider({
   );
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [promptError, setPromptError] = React.useState<string | null>(null);
-  const [bannerDismissedPath, setBannerDismissedPath] = React.useState<
-    string | null
-  >(null);
 
   React.useEffect(() => {
     const updatePromptState = () =>
@@ -187,11 +180,6 @@ export function PwaInstallProvider({
     ]
   );
 
-  const showInstallNotice =
-    !isStandalone &&
-    bannerDismissedPath !== pathname &&
-    (pathname === "/" || pathname === "/acceso");
-
   return (
     <PwaInstallContext.Provider value={contextValue}>
       {children}
@@ -201,30 +189,6 @@ export function PwaInstallProvider({
         platform={platform}
         error={promptError}
       />
-      {showInstallNotice ? (
-        <aside
-          aria-label="Instalación de Grimorio"
-          className="fixed inset-x-3 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 mx-auto flex max-w-md items-center gap-3 rounded-xl border border-border bg-ground p-3 text-ink md:bottom-4"
-        >
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent-ink">
-            <Download className="size-4" aria-hidden="true" />
-          </span>
-          <p className="min-w-0 flex-1 text-xs leading-relaxed text-muted">
-            Guarda Grimorio en tu pantalla de inicio para abrir la mesa en modo pantalla completa.
-          </p>
-          <Button type="button" size="sm" onClick={() => void install()}>
-            Instalar
-          </Button>
-          <button
-            type="button"
-            aria-label="Cerrar aviso de instalación"
-            onClick={() => setBannerDismissedPath(pathname)}
-            className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-muted hover:bg-surface hover:text-ink"
-          >
-            <X className="size-4" aria-hidden="true" />
-          </button>
-        </aside>
-      ) : null}
     </PwaInstallContext.Provider>
   );
 }

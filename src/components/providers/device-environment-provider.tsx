@@ -59,6 +59,7 @@ export function DeviceEnvironmentProvider({
         `${visibleHeight}px`
       );
       document.documentElement.dataset.os = profile.os;
+      document.documentElement.dataset.browser = profile.browser;
       document.documentElement.dataset.standalone = String(
         profile.isStandalone
       );
