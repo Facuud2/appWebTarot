@@ -14,7 +14,7 @@ export default async function AccesoPage() {
   }
 
   return (
-    <div className="min-h-dvh bg-ground px-4 py-10 sm:px-6 lg:px-8 flex items-center justify-center">
+    <div className="standalone-safe-page min-h-dvh bg-ground px-4 py-10 pt-[calc(2.5rem+env(safe-area-inset-top,0px))] pb-[calc(2.5rem+env(safe-area-inset-bottom,0px))] sm:px-6 lg:px-8 flex items-center justify-center">
       <div className="w-full max-w-4xl grid gap-10 lg:grid-cols-[1fr_1.15fr] items-start">
         <section className="space-y-5 pt-2">
           <div className="flex items-center gap-3">
@@ -44,7 +44,7 @@ export default async function AccesoPage() {
             <span className="font-serif text-2xl text-ink">Mesa de Tarot</span>
           </div>
 
-          <h1 className="font-serif text-3xl sm:text-4xl leading-tight text-ink">
+          <h1 className="font-serif text-2xl sm:text-4xl leading-tight text-ink">
             Agenda, registro de lecturas y catálogo de cartas para tarotistas.
           </h1>
 

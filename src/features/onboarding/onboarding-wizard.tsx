@@ -85,10 +85,26 @@ export function OnboardingWizard({
   const [stepDirection, setStepDirection] = React.useState<"forward" | "backward">("forward");
   const [agendaDemoStep, setAgendaDemoStep] = React.useState<number>(1);
   const [agendaSubDirection, setAgendaSubDirection] = React.useState<"forward" | "backward">("forward");
+  const scrollRootRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [onboardingState.currentStep]);
+    document.scrollingElement?.scrollTo({ top: 0, behavior: "smooth" });
+
+    for (
+      let ancestor = scrollRootRef.current?.parentElement;
+      ancestor && ancestor !== document.body;
+      ancestor = ancestor.parentElement
+    ) {
+      const { overflowY } = window.getComputedStyle(ancestor);
+      if (
+        (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+        ancestor.scrollHeight > ancestor.clientHeight
+      ) {
+        ancestor.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    }
+  }, [onboardingState.currentStep, agendaDemoStep]);
 
   const handleAgendaSubStepChange = (
     nextSubStep: number,
@@ -190,9 +206,9 @@ export function OnboardingWizard({
   ]);
 
   return (
-    <div className="min-h-dvh bg-ground flex flex-col justify-between">
+    <div ref={scrollRootRef} className="min-h-dvh bg-ground flex flex-col justify-between">
       {/* BARRA SUPERIOR EDITORIAL */}
-      <header className="border-b border-border bg-ground sticky top-0 z-30 px-4 py-3 sm:px-8">
+      <header className="standalone-safe-header border-b border-border bg-ground sticky top-0 z-30 px-4 py-3 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] sm:px-8">
         <div className="mx-auto max-w-4xl flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <svg

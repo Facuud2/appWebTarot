@@ -4,11 +4,16 @@ import * as React from "react";
 import { X, Download } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { useDeviceEnvironment } from "@/components/providers/device-environment-provider";
 import { PwaInstallDialog } from "@/components/shared/pwa-install-dialog";
 
 export type PwaPlatform =
   | "ios-safari"
   | "ios-chrome"
+  | "ios-other"
+  | "ipados-safari"
+  | "ipados-chrome"
+  | "ipados-other"
   | "android"
   | "other";
 
@@ -57,54 +62,20 @@ if (typeof window !== "undefined") {
   window.addEventListener("appinstalled", handleAppInstalled);
 }
 
-function detectStandalone(): boolean {
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    (window.navigator as Navigator & { standalone?: boolean }).standalone ===
-      true
-  );
-}
-
-function detectPlatform(userAgent: string, platform: string): PwaPlatform {
-  const isIOS =
-    /iPad|iPhone|iPod/i.test(userAgent) ||
-    (platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  if (isIOS) {
-    return /CriOS/i.test(userAgent) ? "ios-chrome" : "ios-safari";
+function getPwaPlatform(
+  os: "ios" | "ipados" | "android" | "desktop",
+  browser: "safari" | "chrome-ios" | "chrome-android" | "other"
+): PwaPlatform {
+  if (os === "android") return "android";
+  if (os === "desktop") return "other";
+  if (os === "ipados") {
+    if (browser === "safari") return "ipados-safari";
+    if (browser === "chrome-ios") return "ipados-chrome";
+    return "ipados-other";
   }
-  if (/Android/i.test(userAgent)) return "android";
-  return "other";
-}
-
-function subscribeToPlatformChange(callback: () => void): () => void {
-  window.addEventListener("pageshow", callback);
-  return () => window.removeEventListener("pageshow", callback);
-}
-
-function getPlatformSnapshot(): PwaPlatform {
-  return detectPlatform(navigator.userAgent, navigator.platform);
-}
-
-function getServerPlatformSnapshot(): PwaPlatform {
-  return "other";
-}
-
-function subscribeToStandaloneChange(callback: () => void): () => void {
-  const displayMode = window.matchMedia("(display-mode: standalone)");
-  displayMode.addEventListener("change", callback);
-  window.addEventListener("appinstalled", callback);
-  return () => {
-    displayMode.removeEventListener("change", callback);
-    window.removeEventListener("appinstalled", callback);
-  };
-}
-
-function getStandaloneSnapshot(): boolean {
-  return detectStandalone();
-}
-
-function getServerStandaloneSnapshot(): boolean {
-  return false;
+  if (browser === "safari") return "ios-safari";
+  if (browser === "chrome-ios") return "ios-chrome";
+  return "ios-other";
 }
 
 export function usePwaInstall(): PwaInstallContextValue {
@@ -121,16 +92,9 @@ export function PwaInstallProvider({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const isStandalone = React.useSyncExternalStore(
-    subscribeToStandaloneChange,
-    getStandaloneSnapshot,
-    getServerStandaloneSnapshot
-  );
-  const platform = React.useSyncExternalStore(
-    subscribeToPlatformChange,
-    getPlatformSnapshot,
-    getServerPlatformSnapshot
-  );
+  const { profile } = useDeviceEnvironment();
+  const isStandalone = profile.isStandalone;
+  const platform = getPwaPlatform(profile.os, profile.browser);
   const [hasDeferredPrompt, setHasDeferredPrompt] = React.useState(
     () => deferredInstallPrompt !== null
   );
@@ -166,15 +130,17 @@ export function PwaInstallProvider({
       });
   }, []);
 
-  const isIOS = platform === "ios-safari" || platform === "ios-chrome";
+  const isIOS = profile.os === "ios" || profile.os === "ipados";
   const isAndroid = platform === "android";
-  const isSafariIOS = platform === "ios-safari";
-  const isChromeIOS = platform === "ios-chrome";
+  const isSafariIOS = profile.browser === "safari" && isIOS;
+  const isChromeIOS = profile.browser === "chrome-ios" && isIOS;
 
   const install = React.useCallback(async () => {
     if (isStandalone) return;
 
-    const prompt = deferredInstallPrompt;
+    const canUseNativePrompt =
+      profile.os === "android" || profile.os === "desktop";
+    const prompt = canUseNativePrompt ? deferredInstallPrompt : null;
     if (!prompt) {
       setPromptError(null);
       setDialogOpen(true);
@@ -196,7 +162,7 @@ export function PwaInstallProvider({
       );
       setDialogOpen(true);
     }
-  }, [isStandalone]);
+  }, [isStandalone, profile.os]);
 
   const contextValue = React.useMemo(
     () => ({
@@ -230,7 +196,7 @@ export function PwaInstallProvider({
     <PwaInstallContext.Provider value={contextValue}>
       {children}
       <PwaInstallDialog
-        open={dialogOpen}
+        open={dialogOpen && !isStandalone}
         onOpenChange={setDialogOpen}
         platform={platform}
         error={promptError}

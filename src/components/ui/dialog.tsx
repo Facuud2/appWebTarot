@@ -3,9 +3,38 @@
 import * as React from "react";
 import { X } from "lucide-react";
 import { Dialog as RadixDialog } from "radix-ui";
+import { useMobileBackClose } from "@/hooks/use-mobile-back-close";
 import { cn } from "@/lib/utils";
 
-export const Dialog = RadixDialog.Root;
+type DialogRootProps = React.ComponentProps<typeof RadixDialog.Root>;
+
+export function Dialog({
+  open,
+  defaultOpen = false,
+  onOpenChange,
+  ...props
+}: DialogRootProps) {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen);
+  const isOpen = open ?? uncontrolledOpen;
+  const handleOpenChange = React.useCallback(
+    (nextOpen: boolean) => {
+      if (open === undefined) setUncontrolledOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+    },
+    [onOpenChange, open]
+  );
+
+  useMobileBackClose(isOpen, () => handleOpenChange(false));
+
+  return (
+    <RadixDialog.Root
+      {...props}
+      open={isOpen}
+      onOpenChange={handleOpenChange}
+    />
+  );
+}
+
 export const DialogTrigger = RadixDialog.Trigger;
 export const DialogPortal = RadixDialog.Portal;
 export const DialogClose = RadixDialog.Close;
@@ -17,7 +46,7 @@ export const DialogOverlay = React.forwardRef<
   <RadixDialog.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px] transition-opacity duration-200 data-[state=closed]:opacity-0 data-[state=open]:opacity-100",
+      "fixed inset-0 z-50 bg-black/55 transition-opacity duration-200 data-[state=closed]:opacity-0 data-[state=open]:opacity-100",
       className
     )}
     {...props}
@@ -34,7 +63,7 @@ export const DialogContent = React.forwardRef<
     <RadixDialog.Content
       ref={ref}
       className={cn(
-        "t-modal fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-border bg-ground p-5 sm:p-6 shadow-xl max-h-[90dvh] overflow-y-auto",
+        "t-modal fixed left-1/2 top-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl border border-border bg-ground p-5 sm:p-6 shadow-xl max-h-[90dvh] overflow-y-auto", // taste-skill-ignore: dialog elevation separates the active modal
         className
       )}
       {...props}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   appendVoiceTranscript,
   normalizeTarotSpeech,
+  removeRepeatedVoicePrefix,
 } from "@/lib/voice-normalizer";
 
 describe("normalizeTarotSpeech", () => {
@@ -33,6 +34,25 @@ describe("normalizeTarotSpeech", () => {
   it("does not add whitespace before a chunk when the existing text already ends with it", () => {
     expect(appendVoiceTranscript("Nota previa\n", "Nueva frase")).toBe(
       "Nota previa\nNueva frase"
+    );
+  });
+
+  it("starts a new dictated sentence after an unpunctuated phrase", () => {
+    expect(
+      appendVoiceTranscript(
+        "Y bueno que te voy a hacer yo",
+        "Qué le voy a hacer che"
+      )
+    ).toBe("Y bueno que te voy a hacer yo. Qué le voy a hacer che");
+  });
+
+  it("removes a cumulative recognition prefix before normalizing the next phrase", () => {
+    expect(removeRepeatedVoicePrefix("hola", "hola, buenos días")).toBe(
+      "buenos días"
+    );
+    expect(removeRepeatedVoicePrefix("hola", "hola")).toBe("");
+    expect(removeRepeatedVoicePrefix("hola", "hoy salió El Mago")).toBe(
+      "hoy salió El Mago"
     );
   });
 });

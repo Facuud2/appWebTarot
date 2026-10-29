@@ -2,10 +2,47 @@
 
 import * as React from "react";
 import { AlertDialog as RadixAlertDialog } from "radix-ui";
+import { useMobileBackClose } from "@/hooks/use-mobile-back-close";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-export const AlertDialog = RadixAlertDialog.Root;
+type AlertDialogRootProps = React.ComponentProps<typeof RadixAlertDialog.Root> & {
+  /**
+   * Whether the hardware/browser Back button should close this dialog.
+   * Disable it when the dialog itself is the Back guard (for example, the
+   * unsaved-changes prompt): it must not push a history entry of its own.
+   */
+  mobileBackClose?: boolean;
+};
+
+export function AlertDialog({
+  open,
+  defaultOpen = false,
+  onOpenChange,
+  mobileBackClose = true,
+  ...props
+}: AlertDialogRootProps) {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen);
+  const isOpen = open ?? uncontrolledOpen;
+  const handleOpenChange = React.useCallback(
+    (nextOpen: boolean) => {
+      if (open === undefined) setUncontrolledOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+    },
+    [onOpenChange, open]
+  );
+
+  useMobileBackClose(isOpen && mobileBackClose, () => handleOpenChange(false));
+
+  return (
+    <RadixAlertDialog.Root
+      {...props}
+      open={isOpen}
+      onOpenChange={handleOpenChange}
+    />
+  );
+}
+
 export const AlertDialogTrigger = RadixAlertDialog.Trigger;
 export const AlertDialogPortal = RadixAlertDialog.Portal;
 

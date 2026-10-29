@@ -11,6 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { ConsultantAvatar } from "@/components/shared/consultant-avatar";
+import { FormattedSessionDateTime } from "@/components/shared/formatted-session-date";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CardCombobox } from "@/components/ui/card-combobox";
@@ -18,7 +19,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PHENOMENON_LABELS, READING_STATUS_LABELS } from "@/lib/constants";
-import { cn, formatDateTimeEs } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import type {
   CanonicalCard,
   Consultant,
@@ -610,13 +611,10 @@ export function ReadingsArchiveClient({
                   </div>
 
                   <div className="flex flex-wrap sm:flex-col items-center sm:items-end justify-between gap-2 shrink-0">
-                    <time
-                      dateTime={reading.performedAt}
-                      suppressHydrationWarning
+                    <FormattedSessionDateTime
+                      iso={reading.performedAt}
                       className="text-xs text-muted num-tabular"
-                    >
-                      {formatDateTimeEs(reading.performedAt)}
-                    </time>
+                    />
                     <Button asChild variant="secondary" size="sm">
                       <Link href={`/lecturas/${reading.id}`}>
                         {reading.status === "draft"

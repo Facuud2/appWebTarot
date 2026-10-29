@@ -225,10 +225,10 @@ export function SpreadMap({
   const isExpanded = panelHeight >= EXPANDED_HEIGHT - 20;
   const cardSizeClass =
     panelHeight < 280
-      ? "w-11 h-[70px] sm:w-12 sm:h-[78px] p-1.5"
+      ? "w-[72px] aspect-[3/5] p-1.5"
       : panelHeight >= 450
-        ? "w-[60px] h-[96px] sm:w-[74px] sm:h-[118px] p-2"
-        : "w-[50px] h-[80px] sm:w-[60px] sm:h-[96px] p-1.5 sm:p-2";
+        ? "w-[84px] aspect-[3/5] p-2"
+        : "w-[78px] aspect-[3/5] p-1.5";
 
   const activeSlot =
     slots.find((s) => s.positionIndex === activePositionIndex) ?? null;
@@ -552,7 +552,7 @@ export function SpreadMap({
                     staticFallbackUrl={slot.staticImageUrl}
                   />
                 ) : (
-                  <div className="flex h-full items-center justify-center px-1 text-[9px] text-muted">
+                  <div className="flex h-full items-center justify-center px-1 pt-6 text-[9px] text-muted">
                     Sin carta
                   </div>
                 )}
@@ -567,23 +567,31 @@ export function SpreadMap({
                   >
                     {slot.positionIndex}
                   </span>
-                  {slot.hasEvent ? (
-                    <Zap
-                      className="size-3 shrink-0 rounded bg-ground/90 p-px text-accent"
-                      aria-label="Evento del mazo asociado"
-                    />
-                  ) : slot.card?.romanNumeral ? (
-                    <span className="rounded bg-ground/90 px-0.5 text-[9px] text-muted truncate">
-                      {slot.card.romanNumeral}
-                    </span>
-                  ) : null}
+                  <span className="flex min-w-0 items-center gap-0.5">
+                    {slot.hasEvent ? (
+                      <Zap
+                        className="size-3 shrink-0 rounded bg-ground/90 p-px text-accent"
+                        aria-label="Evento del mazo asociado"
+                      />
+                    ) : null}
+                    {slot.card?.romanNumeral ? (
+                      <span className="rounded bg-ground/90 px-0.5 text-[9px] text-muted truncate">
+                        {slot.card.romanNumeral}
+                      </span>
+                    ) : null}
+                    {slot.card && isReversed ? (
+                      <span className="rounded bg-ground/90 px-1 py-0.5 text-[8px] font-medium leading-none text-warning">
+                        Inv.
+                      </span>
+                    ) : null}
+                  </span>
                 </div>
               </div>
 
-              <div className="relative z-10 flex min-h-0 flex-[28] w-full items-center justify-center gap-0.5 px-1 py-0.5">
+              <div className="relative z-10 flex min-h-0 flex-[28] w-full items-center justify-center px-1 py-0.5">
                 <p
                   className={cn(
-                    "line-clamp-2 min-w-0 break-words leading-[1.05]",
+                    "line-clamp-2 min-w-0 break-words hyphens-none leading-[1.05]",
                     slot.card
                       ? "font-serif text-[10px] sm:text-[11px] font-medium text-ink"
                       : "text-[9.5px] sm:text-[10px] font-medium text-ink/80"
@@ -593,9 +601,6 @@ export function SpreadMap({
                     ? getCardShortName(slot.card.canonicalName)
                     : slot.positionTitle}
                 </p>
-                {slot.card && isReversed ? (
-                  <span className="shrink-0 text-[8px] font-medium leading-none text-warning">Inv.</span>
-                ) : null}
               </div>
             </button>
           );

@@ -6,6 +6,7 @@ import {
   PwaInstallProvider,
   usePwaInstall,
 } from "@/components/providers/pwa-install-provider";
+import { DeviceEnvironmentProvider } from "@/components/providers/device-environment-provider";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/ajustes",
@@ -26,13 +27,19 @@ function InstallControls() {
 
 function renderProvider() {
   return render(
-    <PwaInstallProvider>
-      <InstallControls />
-    </PwaInstallProvider>
+    <DeviceEnvironmentProvider>
+      <PwaInstallProvider>
+        <InstallControls />
+      </PwaInstallProvider>
+    </DeviceEnvironmentProvider>
   );
 }
 
-function setUserAgent(userAgent: string, platform: string) {
+function setUserAgent(
+  userAgent: string,
+  platform: string,
+  maxTouchPoints = 0
+) {
   Object.defineProperty(navigator, "userAgent", {
     configurable: true,
     value: userAgent,
@@ -40,6 +47,10 @@ function setUserAgent(userAgent: string, platform: string) {
   Object.defineProperty(navigator, "platform", {
     configurable: true,
     value: platform,
+  });
+  Object.defineProperty(navigator, "maxTouchPoints", {
+    configurable: true,
+    value: maxTouchPoints,
   });
 }
 
@@ -95,6 +106,26 @@ describe("PWA installation provider", () => {
     expect(screen.getByText(/Agregar a inicio/)).toBeInTheDocument();
   });
 
+  it("recognizes iPadOS desktop-style user agents and shows iPad Safari instructions", async () => {
+    setUserAgent(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/605.1.15 Version/18.0 Safari/605.1.15",
+      "MacIntel",
+      5
+    );
+    const user = userEvent.setup();
+    renderProvider();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("platform")).toHaveTextContent("ipados-safari")
+    );
+    await user.click(screen.getByRole("button", { name: "Instalar aplicación" }));
+
+    expect(
+      screen.getByRole("dialog", { name: /Instala Grimorio en Safari en iPad/i })
+    ).toBeInTheDocument();
+    expect(screen.getByText(/barra superior derecha de Safari/)).toBeInTheDocument();
+  });
+
   it("captures and invokes the native Android install prompt", async () => {
     setUserAgent(
       "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/130.0.0.0 Mobile Safari/537.36",
@@ -141,5 +172,7 @@ describe("PWA installation provider", () => {
     await waitFor(() =>
       expect(screen.getByTestId("standalone")).toHaveTextContent("true")
     );
+    await userEvent.click(screen.getByRole("button", { name: "Instalar aplicación" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 });

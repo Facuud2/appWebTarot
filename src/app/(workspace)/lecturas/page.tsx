@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ReadingsArchiveClient } from "@/features/readings/readings-archive-client";
 import { listConsultants } from "@/repositories/consultants-repository";
 import {
-  listCanonicalCards,
+  listAllCardsIncludingCustom,
   listDecks,
 } from "@/repositories/grimorio-repository";
 import { listReadings } from "@/repositories/readings-repository";
@@ -74,7 +74,7 @@ export default async function ReadingsArchivePage({
   };
 
   const readings = await listReadings(user.id, filters);
-  const cards = listCanonicalCards();
+  const cards = await listAllCardsIncludingCustom(user.id);
   const consultants = await listConsultants(user.id, { includeArchived: true });
   const decks = await listDecks(user.id);
   const tags = await listUserTags(user.id);

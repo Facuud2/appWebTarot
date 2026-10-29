@@ -22,6 +22,7 @@ import {
 import { toast } from "sonner";
 import { logoutAction } from "@/actions/auth-actions";
 import { GlobalCommandPalette } from "@/components/layout/global-command-palette";
+import { useDeviceEnvironment } from "@/components/providers/device-environment-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -84,20 +85,10 @@ export function AppShell({
   const pathname = usePathname();
   const router = useRouter();
   const { resolvedTheme, setTheme } = useTheme();
+  const { keyboardOpen, isTabletViewport } = useDeviceEnvironment();
   const [tabletMenuOpen, setTabletMenuOpen] = React.useState(false);
   const [commandOpen, setCommandOpen] = React.useState(false);
   const [loggingOut, setLoggingOut] = React.useState(false);
-
-  React.useEffect(() => {
-    const mq = window.matchMedia("(min-width: 768px) and (max-width: 1023px)");
-    const onChange = (e: MediaQueryListEvent) => {
-      if (!e.matches) {
-        setTabletMenuOpen(false);
-      }
-    };
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
 
   const primaryNav = [
     {
@@ -312,7 +303,7 @@ export function AppShell({
               setTheme(resolvedTheme === "dark" ? "light" : "dark")
             }
             aria-label="Cambiar tema claro u oscuro"
-            className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-muted hover:text-ink active:scale-95 transition-all duration-150"
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-border bg-surface text-muted hover:text-ink active:scale-95 transition-[color,background-color,border-color,transform] duration-150"
           >
             <Sun className="hidden size-4 dark:block transition-transform duration-200" aria-hidden="true" />
             <Moon className="block size-4 dark:hidden transition-transform duration-200" aria-hidden="true" />
@@ -349,7 +340,7 @@ export function AppShell({
       </aside>
 
       {/* Mobile & Tablet Sticky Header */}
-      <header className="standalone-safe-header sticky top-0 z-30 flex h-13 w-full items-center justify-between gap-2 border-b border-border bg-ground px-3 sm:px-4 lg:hidden">
+      <header className="app-top-header standalone-safe-header sticky top-0 z-30 flex h-13 w-full items-center justify-between gap-2 border-b border-border bg-ground px-3 sm:px-4 lg:hidden">
         <div className="flex min-w-0 items-center gap-2">
           {/* Hamburger button exclusively for Tablet (md..lg); Mobile uses bottom bar */}
           <button
@@ -406,7 +397,10 @@ export function AppShell({
       </header>
 
       {/* Tablet Navigation Drawer */}
-      <Sheet open={tabletMenuOpen} onOpenChange={setTabletMenuOpen}>
+      <Sheet
+        open={tabletMenuOpen && isTabletViewport}
+        onOpenChange={setTabletMenuOpen}
+      >
         <SheetContent side="left" className="p-4">
           <SheetHeader className="sr-only">
             <SheetTitle>Menú de navegación</SheetTitle>
@@ -424,7 +418,10 @@ export function AppShell({
           key={pathname}
           id="contenido-principal"
           tabIndex={-1}
-          className="standalone-safe-main t-page-enter mx-auto w-full min-w-0 max-w-[1160px] px-4 py-5 pb-24 sm:px-6 sm:py-8 lg:px-10 lg:py-9 lg:pb-12 outline-none overflow-x-hidden"
+          className={cn(
+            "standalone-safe-main t-page-enter mx-auto w-full min-w-0 max-w-[1160px] px-4 py-5 pb-[calc(6rem+env(safe-area-inset-bottom,0px))] sm:px-6 sm:py-8 lg:px-10 lg:py-9 lg:pb-12 outline-none overflow-x-hidden",
+            keyboardOpen && "pb-5"
+          )}
         >
           {children}
         </main>
@@ -433,7 +430,14 @@ export function AppShell({
       {/* Mobile Bottom Bar (<= 5 destinations with icon + label) */}
       <nav
         aria-label="Navegación móvil rápida"
-        className="standalone-safe-bottom-nav fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-ground/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)] md:hidden shadow-sm"
+        aria-hidden={keyboardOpen}
+        inert={keyboardOpen}
+        className={cn(
+          "app-bottom-nav standalone-safe-bottom-nav fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-border bg-ground/95 pb-[calc(0.6rem+env(safe-area-inset-bottom,0px))] transition-[opacity,transform] duration-150 md:hidden",
+          keyboardOpen
+            ? "pointer-events-none translate-y-full opacity-0"
+            : "translate-y-0 opacity-100"
+        )}
       >
         {primaryNav.map((item) => {
           const active = isRouteActive(item.href, item.exact);
@@ -444,7 +448,7 @@ export function AppShell({
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "relative flex min-h-[54px] min-w-0 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[10px] sm:text-[11px] leading-tight transition-all duration-150 active:scale-95",
+                "relative flex min-h-[54px] min-w-0 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[10px] sm:text-[11px] leading-tight transition-[color,background-color,transform] duration-150 active:scale-95",
                 active ? "text-ink font-semibold" : "text-muted hover:text-ink"
               )}
             >

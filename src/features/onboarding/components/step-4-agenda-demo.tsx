@@ -55,15 +55,6 @@ export function Step4AgendaDemo({
   onContinue,
   onPrevStep,
 }: Step4AgendaDemoProps) {
-  const demoContainerRef = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
-    demoContainerRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }, [demoStep]);
-
   // Formulario para crear cita real opcional (en etapa 5)
   const [showRealForm, setShowRealForm] = React.useState<boolean>(false);
   const [isSubmittingReal, setIsSubmittingReal] = React.useState<boolean>(false);
@@ -170,7 +161,7 @@ export function Step4AgendaDemo({
   };
 
   return (
-    <div ref={demoContainerRef} className="scroll-mt-24 space-y-6">
+    <div className="space-y-6">
       <div className="space-y-2 text-center sm:text-left">
         <h2 className="font-serif text-2xl sm:text-3xl text-ink leading-tight">
           Organiza tus citas y ten a mano la información de cada consulta

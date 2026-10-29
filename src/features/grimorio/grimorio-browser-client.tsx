@@ -51,6 +51,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DECK_TRADITION_LABELS, SUIT_LABELS } from "@/lib/constants";
+import { selectDeckCards } from "@/lib/deck-cards";
 import { cn } from "@/lib/utils";
 import {
   deckFormSchema,
@@ -148,13 +149,15 @@ export function GrimorioBrowserClient({
 
   const cardsForActiveDeck = React.useMemo(() => {
     if (!activeDeck) return initialCards;
-    return initialCards.filter((item) => {
-      if (!activeDeck.isBuiltin && activeDeck.userId !== null) {
-        return item.card.deckTradition === activeDeck.id;
-      }
-      return item.card.deckTradition === activeDeck.tradition;
-    });
-  }, [initialCards, activeDeck]);
+    const activeCardIds = new Set(
+      selectDeckCards(
+        initialCards.map((item) => item.card),
+        availableDecks,
+        [activeDeck.id]
+      ).map((card) => card.id)
+    );
+    return initialCards.filter((item) => activeCardIds.has(item.card.id));
+  }, [initialCards, activeDeck, availableDecks]);
 
   const totalDeckCards = cardsForActiveDeck.length;
   const majorCount = React.useMemo(
@@ -264,6 +267,7 @@ export function GrimorioBrowserClient({
           tradition: initialTargetDeck.tradition,
           author: initialTargetDeck.author ?? "",
           cardCount: initialTargetDeck.cardCount,
+          includeClassicStructure: false,
           description: initialTargetDeck.description,
           isDefault: initialTargetDeck.isDefault,
         }
@@ -272,6 +276,7 @@ export function GrimorioBrowserClient({
           tradition: "rws",
           author: "",
           cardCount: 78,
+          includeClassicStructure: true,
           description: "",
           isDefault: initialDecks.length === 0,
         },
@@ -284,6 +289,7 @@ export function GrimorioBrowserClient({
       tradition: "rws",
       author: "",
       cardCount: 78,
+      includeClassicStructure: true,
       description: "",
       isDefault: initialDecks.length === 0,
     });
@@ -297,6 +303,7 @@ export function GrimorioBrowserClient({
       tradition: deck.tradition,
       author: deck.author ?? "",
       cardCount: deck.cardCount,
+      includeClassicStructure: false,
       description: deck.description,
       isDefault: deck.isDefault,
     });
@@ -306,6 +313,18 @@ export function GrimorioBrowserClient({
   const deckIsDefault = useWatch({
     control: deckForm.control,
     name: "isDefault",
+  });
+  const deckTradition = useWatch({
+    control: deckForm.control,
+    name: "tradition",
+  });
+  const deckCardCount = useWatch({
+    control: deckForm.control,
+    name: "cardCount",
+  });
+  const includeClassicStructure = useWatch({
+    control: deckForm.control,
+    name: "includeClassicStructure",
   });
 
   const onSaveDeck = deckForm.handleSubmit((values) => {
@@ -885,12 +904,12 @@ export function GrimorioBrowserClient({
               ) : null}
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-[minmax(0,2fr)_minmax(6rem,1fr)] gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="deck-tradition">Mazo / Tradición</Label>
                 <select
                   id="deck-tradition"
-                  className="flex h-10 w-full rounded-lg border border-control bg-raised px-3 text-sm text-ink"
+                  className="flex h-10 w-full min-w-0 rounded-lg border border-control bg-raised px-2 text-sm text-ink"
                   {...deckForm.register("tradition")}
                 >
                   {(
@@ -899,7 +918,9 @@ export function GrimorioBrowserClient({
                     ) as Array<keyof typeof DECK_TRADITION_LABELS>
                   ).map((key) => (
                     <option key={key} value={key}>
-                      {DECK_TRADITION_LABELS[key]}
+                      {key === "other"
+                        ? "Otra tradición u oráculo"
+                        : DECK_TRADITION_LABELS[key]}
                     </option>
                   ))}
                 </select>
@@ -915,6 +936,26 @@ export function GrimorioBrowserClient({
                 />
               </div>
             </div>
+
+            {!editingDeck &&
+            deckTradition === "other" &&
+            deckCardCount === 78 ? (
+              <label className="flex items-start gap-2 text-xs leading-relaxed text-ink cursor-pointer">
+                <Checkbox
+                  checked={includeClassicStructure ?? true}
+                  onCheckedChange={(checked) =>
+                    deckForm.setValue("includeClassicStructure", checked === true, {
+                      shouldDirty: true,
+                    })
+                  }
+                  className="mt-0.5"
+                />
+                <span>
+                  Incluir estructura clásica de 78 arcanos (22 Mayores y 56
+                  Menores) editable
+                </span>
+              </label>
+            ) : null}
 
             <div className="space-y-1.5">
               <Label htmlFor="deck-author">Autoría o edición (opcional)</Label>

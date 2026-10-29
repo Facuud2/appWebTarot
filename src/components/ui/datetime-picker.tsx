@@ -150,7 +150,7 @@ export function DateTimePicker({
 
         <PopoverContent
           ref={popoverContentRef}
-          className="w-auto max-w-[calc(100vw-2rem)] space-y-4 overflow-y-auto overscroll-contain rounded-xl border border-border bg-ground p-4 z-50"
+          className="w-[min(22rem,calc(100vw-1.5rem))] max-w-[calc(100vw-1.5rem)] space-y-4 overflow-y-auto overscroll-contain rounded-xl border border-border bg-ground p-2 sm:p-4 z-50"
           align="start"
           sideOffset={6}
           style={{

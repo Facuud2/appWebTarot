@@ -29,7 +29,8 @@ export function AuthPanel() {
 
   const loginForm = useForm<LoginInput>({
     resolver: zodResolver(loginSchema),
-    mode: "onBlur",
+    mode: "onSubmit",
+    reValidateMode: "onChange",
     defaultValues: {
       email: "",
       password: "",
@@ -38,7 +39,8 @@ export function AuthPanel() {
 
   const registerForm = useForm<RegisterInput>({
     resolver: zodResolver(registerSchema),
-    mode: "onBlur",
+    mode: "onSubmit",
+    reValidateMode: "onChange",
     defaultValues: {
       name: "",
       workspaceName: "",
@@ -201,7 +203,7 @@ export function AuthPanel() {
                 type="submit"
                 variant="primary"
                 disabled={loginForm.formState.isSubmitting}
-                className="w-full"
+                className="w-full transition-transform active:scale-[0.98] active:opacity-90"
               >
                 {loginForm.formState.isSubmitting
                   ? "Verificando credenciales…"
@@ -305,7 +307,7 @@ export function AuthPanel() {
                 type="submit"
                 variant="primary"
                 disabled={registerForm.formState.isSubmitting}
-                className="w-full"
+                className="w-full transition-transform active:scale-[0.98] active:opacity-90"
               >
                 {registerForm.formState.isSubmitting
                   ? "Creando espacio…"

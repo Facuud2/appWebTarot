@@ -4,6 +4,7 @@ import * as React from "react";
 import { Command } from "cmdk";
 import { Check, ChevronsUpDown, Plus, Search, X } from "lucide-react";
 import { TarotCardPlate } from "@/components/shared/tarot-card-plate";
+import { useDeviceEnvironment } from "@/components/providers/device-environment-provider";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DECK_TRADITION_LABELS, SUIT_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -50,6 +51,7 @@ export function CardCombobox({
   customDecks,
   onRegisterCustomCard,
 }: CardComboboxProps) {
+  const { profile } = useDeviceEnvironment();
   const [open, setOpen] = React.useState(false);
   const [quickFilter, setQuickFilter] = React.useState<CardQuickFilter>("all");
   const [searchQuery, setSearchQuery] = React.useState("");
@@ -220,6 +222,14 @@ export function CardCombobox({
   return (
     <div className="flex items-center gap-1.5 w-full min-w-0 max-w-full">
       <Popover open={open} onOpenChange={handleOpenChange}>
+        {open ? (
+          <button
+            type="button"
+            aria-label="Cerrar selector de cartas"
+            onClick={() => setOpen(false)}
+            className="fixed inset-0 z-40 bg-ink/35 md:hidden"
+          />
+        ) : null}
         <PopoverTrigger asChild>
           <button
             ref={triggerButtonRef}
@@ -263,7 +273,12 @@ export function CardCombobox({
           </button>
         </PopoverTrigger>
         <PopoverContent
-          className="max-h-[calc(100dvh-1rem)] w-[min(420px,calc(100vw-2rem))] overflow-hidden p-0"
+          className="card-picker-mobile-content max-h-[calc(var(--vvh,100dvh)-5.5rem)] w-[min(420px,calc(100vw-2rem))] overflow-hidden bg-ground p-0"
+          style={{
+            maxHeight: profile.isMobileOrTablet
+              ? "calc(var(--vvh, 100dvh) - 5.5rem)"
+              : undefined,
+          }}
           align="start"
           onWheel={(e) => e.stopPropagation()}
           onTouchMove={(e) => e.stopPropagation()}
@@ -348,7 +363,9 @@ export function CardCombobox({
               id={listboxId}
               className="max-h-80 overflow-y-auto p-1.5 overscroll-contain touch-pan-y"
               style={{
-                maxHeight: "min(340px, calc(100dvh - 14rem))",
+                maxHeight: profile.isMobileOrTablet
+                  ? "min(340px, calc(var(--vvh, 100dvh) - 14rem))"
+                  : "min(340px, calc(100dvh - 14rem))",
                 overflowY: "auto",
                 WebkitOverflowScrolling: "touch",
                 touchAction: "pan-y",

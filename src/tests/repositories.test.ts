@@ -16,7 +16,9 @@ import {
 import {
   createDeck,
   createQuickDeck,
+  deleteDeck,
   getGrimorioCardBySlug,
+  listAllCardsIncludingCustom,
   listAvailableDecks,
   listDecks,
   listGrimorioCards,
@@ -72,6 +74,127 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     expect(snapshot.incompleteConsultants).toHaveLength(0);
     expect(await listConsultants(user.id, {}, db)).toHaveLength(0);
     expect(await listDecks(user.id, db)).toHaveLength(0);
+  });
+
+  it("seeds editable canonical cards into new custom decks when requested", async () => {
+    const db = createDatabaseInstance(":memory:", { seedDemo: false });
+    const user = await registerNewUser(
+      {
+        name: "Usuaria de mazos propios",
+        workspaceName: "Mesa de prueba",
+        email: "mazos-propios@limpio.org",
+        password: "clave-segura-123",
+      },
+      db
+    );
+
+    const customTarot = await createDeck(
+      user.id,
+      {
+        name: "Tarot Egipcio",
+        tradition: "other",
+        author: "",
+        cardCount: 78,
+        includeClassicStructure: true,
+        description: "",
+        isDefault: true,
+      },
+      db
+    );
+    const customMarseille = await createDeck(
+      user.id,
+      {
+        name: "Marsella de prueba",
+        tradition: "marseille",
+        author: "",
+        cardCount: 78,
+        description: "",
+        isDefault: false,
+      },
+      db
+    );
+    const emptyOracle = await createDeck(
+      user.id,
+      {
+        name: "Oráculo breve",
+        tradition: "other",
+        author: "",
+        cardCount: 36,
+        includeClassicStructure: false,
+        description: "",
+        isDefault: false,
+      },
+      db
+    );
+
+    const cards = await listAllCardsIncludingCustom(user.id, db);
+    const egyptCards = cards.filter(
+      (card) => card.deckTradition === customTarot.id
+    );
+    const marseilleCards = cards.filter(
+      (card) => card.deckTradition === customMarseille.id
+    );
+
+    expect(egyptCards).toHaveLength(78);
+    expect(egyptCards.filter((card) => card.arcana === "major")).toHaveLength(22);
+    expect(egyptCards.filter((card) => card.arcana === "minor")).toHaveLength(56);
+    expect(marseilleCards).toHaveLength(78);
+    expect(
+      cards.filter((card) => card.deckTradition === emptyOracle.id)
+    ).toHaveLength(0);
+    expect(egyptCards[0]?.id).not.toBe("major-00");
+  });
+
+  it("removes unused cloned cards when deleting a deck and retains referenced cards", async () => {
+    const db = createDatabaseInstance(":memory:", { seedDemo: false });
+    const user = await registerNewUser(
+      {
+        name: "Usuaria de mazos propios",
+        workspaceName: "Mesa de prueba",
+        email: "eliminar-mazo@limpio.org",
+        password: "clave-segura-123",
+      },
+      db
+    );
+    const deck = await createDeck(
+      user.id,
+      {
+        name: "Mazo temporal",
+        tradition: "other",
+        author: "",
+        cardCount: 78,
+        includeClassicStructure: true,
+        description: "",
+        isDefault: false,
+      },
+      db
+    );
+    const clonedCards = (await db
+      .prepare(
+        "SELECT id FROM cards_catalog WHERE deck_tradition = ? ORDER BY rank_number"
+      )
+      .all(deck.id)) as Array<{ id: string }>;
+    const retainedCardId = clonedCards[0].id;
+
+    await db
+      .prepare(
+        `INSERT INTO card_entries (id, user_id, card_id, deck_id, updated_at)
+         VALUES (?, ?, ?, ?, ?)`
+      )
+      .run("entry-deck-reference", user.id, retainedCardId, deck.id, new Date().toISOString());
+
+    await deleteDeck(user.id, deck.id, db);
+
+    const remainingCards = (await db
+      .prepare("SELECT id FROM cards_catalog WHERE deck_tradition = ?")
+      .all(deck.id)) as Array<{ id: string }>;
+    const retainedEntry = (await db
+      .prepare("SELECT deck_id FROM card_entries WHERE id = ?")
+      .get("entry-deck-reference")) as { deck_id: string | null };
+
+    expect(clonedCards).toHaveLength(78);
+    expect(remainingCards).toEqual([{ id: retainedCardId }]);
+    expect(retainedEntry.deck_id).toBeNull();
   });
 
   it("persists builtin deck references when a reading selects a virtual deck", async () => {

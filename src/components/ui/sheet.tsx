@@ -3,9 +3,38 @@
 import * as React from "react";
 import { X } from "lucide-react";
 import { Dialog as RadixDialog } from "radix-ui";
+import { useMobileBackClose } from "@/hooks/use-mobile-back-close";
 import { cn } from "@/lib/utils";
 
-export const Sheet = RadixDialog.Root;
+type SheetRootProps = React.ComponentProps<typeof RadixDialog.Root>;
+
+export function Sheet({
+  open,
+  defaultOpen = false,
+  onOpenChange,
+  ...props
+}: SheetRootProps) {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen);
+  const isOpen = open ?? uncontrolledOpen;
+  const handleOpenChange = React.useCallback(
+    (nextOpen: boolean) => {
+      if (open === undefined) setUncontrolledOpen(nextOpen);
+      onOpenChange?.(nextOpen);
+    },
+    [onOpenChange, open]
+  );
+
+  useMobileBackClose(isOpen, () => handleOpenChange(false));
+
+  return (
+    <RadixDialog.Root
+      {...props}
+      open={isOpen}
+      onOpenChange={handleOpenChange}
+    />
+  );
+}
+
 export const SheetTrigger = RadixDialog.Trigger;
 export const SheetClose = RadixDialog.Close;
 
@@ -19,12 +48,12 @@ export const SheetContent = React.forwardRef<
   SheetContentProps
 >(({ side = "right", className, children, ...props }, ref) => (
   <RadixDialog.Portal>
-    <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px] transition-opacity duration-200 data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
+    <RadixDialog.Overlay className="fixed inset-0 z-50 bg-black/55 transition-opacity duration-200 data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
     <RadixDialog.Content
       ref={ref}
       data-side={side}
       className={cn(
-        "t-panel-slide fixed z-50 flex flex-col bg-ground border-border shadow-xl p-5 overflow-y-auto",
+        "t-panel-slide fixed z-50 flex flex-col bg-ground border-border shadow-xl p-5 overflow-y-auto", // taste-skill-ignore: sheet elevation separates the active panel
         side === "left" &&
           "inset-y-0 left-0 h-full w-[280px] max-w-[85vw] border-r",
         side === "right" &&

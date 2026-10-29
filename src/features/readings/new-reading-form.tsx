@@ -71,9 +71,11 @@ import {
 } from "@/lib/constants";
 import {
   cn,
+  createReadingTitle,
   formatSessionDateTime,
   toIsoUtcString,
 } from "@/lib/utils";
+import { isBuiltinDeck, selectDeckCards } from "@/lib/deck-cards";
 import { appendVoiceTranscript } from "@/lib/voice-normalizer";
 import type { ReadingCardInput } from "@/schemas/domain";
 import type {
@@ -231,14 +233,6 @@ const PHASE_OPTIONS: Array<{ phase: DeckPhase; label: string }> = [
   { phase: "closing", label: "Cierre" },
   { phase: "other", label: "Otra fase" },
 ];
-
-const BUILTIN_TRADITIONS = new Set<string>([
-  "rws",
-  "marseille",
-  "thoth",
-  "lenormand",
-  "living_wheel",
-]);
 
 export function NewReadingForm({
   consultants,
@@ -415,7 +409,7 @@ export function NewReadingForm({
     const list: Array<{ id: string; name: string }> = [];
 
     for (const d of activeDecks) {
-      if (!BUILTIN_TRADITIONS.has(d.tradition) || d.tradition === "other") {
+      if (!isBuiltinDeck(d)) {
         list.push({ id: d.id, name: d.name });
       }
     }
@@ -424,49 +418,8 @@ export function NewReadingForm({
 
   // Compute strictly filtered cards based on chosen decks
   const availableFilteredCards = React.useMemo(() => {
-    const activeDecks = availableDecks.filter((d) => selectedDeckIds.includes(d.id));
-    const selectedTraditions = new Set<string>(
-      activeDecks.map((d) => d.tradition)
-    );
-    const selectedCustomIds = new Set<string>(
-      activeCustomDecks.map((d) => d.id)
-    );
-
-    const hasBuiltin = Array.from(selectedTraditions).some((t) =>
-      BUILTIN_TRADITIONS.has(t)
-    );
-    const hasCustom = activeCustomDecks.length > 0;
-
-    // Filter cards
-    const matching = cardsCatalog.filter((c) => {
-      // Check if it belongs to selected builtin traditions
-      if (selectedTraditions.has(c.deckTradition)) {
-        return true;
-      }
-      // Check if it belongs to any selected custom deck
-      if (selectedCustomIds.has(c.deckTradition)) {
-        return true;
-      }
-      return false;
-    });
-
-    // If only custom decks were selected and they have no cards yet, return empty list
-    // (DO NOT fallback to RWS! Custom decks should show only their own cards + "Registrar nueva carta")
-    if (hasCustom && !hasBuiltin) {
-      return matching;
-    }
-
-    if (matching.length > 0) {
-      return matching;
-    }
-
-    // If user selected a builtin deck, filter for that builtin tradition
-    if (hasBuiltin) {
-      return cardsCatalog.filter((c) => selectedTraditions.has(c.deckTradition));
-    }
-
-    return [];
-  }, [cardsCatalog, availableDecks, selectedDeckIds, activeCustomDecks]);
+    return selectDeckCards(cardsCatalog, availableDecks, selectedDeckIds);
+  }, [cardsCatalog, availableDecks, selectedDeckIds]);
 
   // Deck traditions labels summary
   const selectedDeckTraditionsLabel = React.useMemo(() => {
@@ -858,16 +811,23 @@ export function NewReadingForm({
         })),
     }));
   }, [cardSlots, cardByIdMap, eventPositionIndices, localDeckEvents]);
+  const emptyCardPositions = cardSlots.filter((slot) => !slot.cardId.trim()).length;
 
   // Save Reading Draft
   const handleSaveDraft = React.useCallback(async (): Promise<boolean> => {
     setIsSavingDraft(true);
     try {
-      const resolvedTitle =
-        sessionTitle.trim() ||
-        (questionIntention.trim()
-          ? questionIntention.trim().slice(0, 72)
-          : `Borrador · ${new Date().toISOString().slice(0, 10)}`);
+      const selectedConsultantName = isRegisteringNewConsultant
+        ? quickConsultantName
+        : consultants.find((consultant) => consultant.id === consultantId)
+            ?.displayName;
+      const resolvedTitle = createReadingTitle(
+        sessionTitle,
+        spreadMode === "custom"
+          ? spreadName
+          : (selectedClassicSpread?.name ?? spreadName),
+        selectedConsultantName
+      );
 
       let readingId = currentDraftId;
 
@@ -1004,6 +964,7 @@ export function NewReadingForm({
     cardSlots,
     spreadName,
     selectedClassicSpread,
+    consultants,
     sessionContext,
     performedAt,
     localDeckEvents,
@@ -1076,11 +1037,17 @@ export function NewReadingForm({
   const handleCompleteAndSave = () => {
     startTransition(async () => {
       try {
-        const resolvedTitle =
-          sessionTitle.trim() ||
-          (questionIntention.trim()
-            ? questionIntention.trim().slice(0, 72)
-            : `Sesión de lectura · ${new Date().toISOString().slice(0, 10)}`);
+        const selectedConsultantName = isRegisteringNewConsultant
+          ? quickConsultantName
+          : consultants.find((consultant) => consultant.id === consultantId)
+              ?.displayName;
+        const resolvedTitle = createReadingTitle(
+          sessionTitle,
+          spreadMode === "custom"
+            ? spreadName
+            : (selectedClassicSpread?.name ?? spreadName),
+          selectedConsultantName
+        );
 
         let readingId = currentDraftId;
 
@@ -1947,21 +1914,43 @@ export function NewReadingForm({
                       >
                         Carta colocada en esta posición
                       </Label>
-                      <CardCombobox
-                        id={`card-select-${slot.positionIndex}`}
-                        cards={cardsForThisSlot}
-                        value={slot.cardId}
-                        onChange={(cardId) =>
-                          updateCardSlot(slot.positionIndex, { cardId })
-                        }
-                        placeholder={`Seleccionar carta para «${slot.positionTitle}»…`}
-                        allowClear
-                        deckNamesMap={deckNamesMap}
-                        customDecks={activeCustomDecks}
-                        onRegisterCustomCard={(deckId) =>
-                          handleOpenRegisterCard(deckId, slot.positionIndex)
-                        }
-                      />
+                      {availableFilteredCards.length === 0 &&
+                      activeCustomDecks.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {activeCustomDecks.map((deck) => (
+                            <Button
+                              key={deck.id}
+                              type="button"
+                              variant="secondary"
+                              onClick={() =>
+                                handleOpenRegisterCard(deck.id, slot.positionIndex)
+                              }
+                              className="min-h-11"
+                            >
+                              <Plus className="size-4" aria-hidden="true" />
+                              <span>
+                                + Añadir primera carta a {deck.name}
+                              </span>
+                            </Button>
+                          ))}
+                        </div>
+                      ) : (
+                        <CardCombobox
+                          id={`card-select-${slot.positionIndex}`}
+                          cards={cardsForThisSlot}
+                          value={slot.cardId}
+                          onChange={(cardId) =>
+                            updateCardSlot(slot.positionIndex, { cardId })
+                          }
+                          placeholder={`Seleccionar carta para «${slot.positionTitle}»…`}
+                          allowClear
+                          deckNamesMap={deckNamesMap}
+                          customDecks={activeCustomDecks}
+                          onRegisterCustomCard={(deckId) =>
+                            handleOpenRegisterCard(deckId, slot.positionIndex)
+                          }
+                        />
+                      )}
                     </div>
 
                     <div className="sm:col-span-4 min-w-0 max-w-full">
@@ -2197,6 +2186,14 @@ export function NewReadingForm({
 
             {/* Bottom Actions for Step 2 */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-border pt-4">
+              {emptyCardPositions > 0 ? (
+                <p className="text-xs text-muted" role="status">
+                  Tienes {emptyCardPositions}{" "}
+                  {emptyCardPositions === 1
+                    ? "posición sin carta asignada."
+                    : "posiciones sin carta asignada."}
+                </p>
+              ) : null}
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
@@ -2372,27 +2369,37 @@ export function NewReadingForm({
 
           {/* Bottom Actions for Step 3 */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-border pt-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={handleBackToStep2}
-                disabled={isPending}
-                className="min-w-0"
-              >
-                <ArrowLeft className="size-4 shrink-0 mr-1" aria-hidden="true" />
-                <span className="hidden sm:inline">Volver a Cartas y Notas</span>
-                <span className="sm:hidden">← Volver</span>
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setIsCancelDialogOpen(true)}
-                disabled={isPending}
-                className="text-muted hover:text-negative"
-              >
-                Cancelar lectura
-              </Button>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              {emptyCardPositions > 0 ? (
+                <p className="text-xs text-muted" role="status">
+                  Tienes {emptyCardPositions}{" "}
+                  {emptyCardPositions === 1
+                    ? "posición sin carta asignada."
+                    : "posiciones sin carta asignada."}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleBackToStep2}
+                  disabled={isPending}
+                  className="min-w-0"
+                >
+                  <ArrowLeft className="size-4 shrink-0 mr-1" aria-hidden="true" />
+                  <span className="hidden sm:inline">Volver a Cartas y Notas</span>
+                  <span className="sm:hidden">← Volver</span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setIsCancelDialogOpen(true)}
+                  disabled={isPending}
+                  className="text-muted hover:text-negative"
+                >
+                  Cancelar lectura
+                </Button>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">

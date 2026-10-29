@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Instrument_Sans, Instrument_Serif } from "next/font/google";
 import { AppProviders } from "@/components/providers/app-providers";
+import { DeviceEnvironmentProvider } from "@/components/providers/device-environment-provider";
 import { PwaInstallProvider } from "@/components/providers/pwa-install-provider";
 import "./globals.css";
 
@@ -44,6 +45,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  interactiveWidget: "resizes-visual",
   themeColor: "#0b110e",
 };
 
@@ -59,9 +61,11 @@ export default function RootLayout({
       className={`${instrumentSans.variable} ${instrumentSerif.variable}`}
     >
       <body suppressHydrationWarning>
-        <AppProviders>
-          <PwaInstallProvider>{children}</PwaInstallProvider>
-        </AppProviders>
+        <DeviceEnvironmentProvider>
+          <AppProviders>
+            <PwaInstallProvider>{children}</PwaInstallProvider>
+          </AppProviders>
+        </DeviceEnvironmentProvider>
       </body>
     </html>
   );

@@ -809,6 +809,24 @@ export async function createDeck(
 ): Promise<Deck> {
   const id = `deck-${randomUUID()}`;
   const nowIso = new Date().toISOString();
+  const seedTradition =
+    values.tradition === "other"
+      ? values.cardCount === 78 && values.includeClassicStructure
+        ? "rws"
+        : null
+      : values.tradition;
+  const seedCards = seedTradition
+    ? CANONICAL_TAROT_CARDS.filter(
+        (card) => card.deckTradition === seedTradition
+      )
+    : [];
+  const insertCard = db.prepare(`
+    INSERT INTO cards_catalog (
+      id, slug, arcana, suit, rank_number, roman_numeral,
+      canonical_name, name_en, deck_tradition, search_keywords_json,
+      traditional_upright, traditional_reversed, traditional_keywords_json, archetype_note
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
 
   await db.exec("BEGIN");
   try {
@@ -832,6 +850,24 @@ export async function createDeck(
       values.isDefault ? 1 : 0,
       nowIso
     );
+    for (const card of seedCards) {
+      await insertCard.run(
+        `${id}-${card.id}`,
+        `${id}-${card.slug}`,
+        card.arcana,
+        card.suit,
+        card.rankNumber,
+        card.romanNumeral,
+        card.canonicalName,
+        card.nameEn,
+        id,
+        JSON.stringify(card.searchKeywords),
+        card.traditionalUpright,
+        card.traditionalReversed,
+        JSON.stringify(card.traditionalKeywords),
+        card.archetypeNote
+      );
+    }
     await db.exec("COMMIT");
   } catch (err) {
     await db.exec("ROLLBACK");
@@ -928,11 +964,39 @@ export async function deleteDeck(
   deckId: string,
   db: AppDatabase = getDb(userId)
 ): Promise<void> {
-  const res = await db
-    .prepare("DELETE FROM decks WHERE user_id = ? AND id = ?")
-    .run(userId, deckId);
-  if (res.changes === 0) {
-    throw new Error("No se encontró el mazo para eliminar.");
+  await db.exec("BEGIN");
+  try {
+    const res = await db
+      .prepare("DELETE FROM decks WHERE user_id = ? AND id = ?")
+      .run(userId, deckId);
+    if (res.changes === 0) {
+      throw new Error("No se encontró el mazo para eliminar.");
+    }
+
+    await db
+      .prepare(
+        `DELETE FROM cards_catalog
+         WHERE deck_tradition = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM reading_cards WHERE reading_cards.card_id = cards_catalog.id
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM deck_events WHERE deck_events.card_id = cards_catalog.id
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM card_entries WHERE card_entries.card_id = cards_catalog.id
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM card_interpretation_logs
+             WHERE card_interpretation_logs.card_id = cards_catalog.id
+           )`
+      )
+      .run(deckId);
+
+    await db.exec("COMMIT");
+  } catch (err) {
+    await db.exec("ROLLBACK");
+    throw err;
   }
 }
 

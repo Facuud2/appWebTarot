@@ -1,7 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { normalizeTarotSpeech } from "@/lib/voice-normalizer";
+import { useDeviceEnvironment } from "@/components/providers/device-environment-provider";
+import {
+  normalizeTarotSpeech,
+  removeRepeatedVoicePrefix,
+} from "@/lib/voice-normalizer";
 
 interface SpeechRecognitionAlternativeLike {
   transcript: string;
@@ -59,6 +63,7 @@ interface UseVoiceDictationResult {
 
 let activeRecognition: SpeechRecognitionLike | null = null;
 let activeOwner: symbol | null = null;
+let activeShouldKeepListeningRef: { current: boolean } | null = null;
 
 function subscribeToVoiceSupport(): () => void {
   return () => {};
@@ -96,10 +101,13 @@ function getRecognitionErrorMessage(error: string): string {
 export function useVoiceDictation({
   onTranscript,
 }: UseVoiceDictationOptions = {}): UseVoiceDictationResult {
+  const { profile } = useDeviceEnvironment();
   const ownerRef = React.useRef<symbol>(Symbol("voice-dictation"));
   const recognitionRef = React.useRef<SpeechRecognitionLike | null>(null);
   const onTranscriptRef = React.useRef(onTranscript);
-  const startListeningRef = React.useRef<(language?: string) => void>(() => {});
+  const shouldKeepListeningRef = React.useRef(false);
+  const lastAndroidFinalRef = React.useRef("");
+  const startRecognitionRef = React.useRef<(language?: string) => void>(() => {});
   const [isListening, setIsListening] = React.useState(false);
   const isSupported = React.useSyncExternalStore(
     subscribeToVoiceSupport,
@@ -114,6 +122,7 @@ export function useVoiceDictation({
   }, [onTranscript]);
 
   const stopListening = React.useCallback(() => {
+    shouldKeepListeningRef.current = false;
     const recognition = recognitionRef.current;
     if (!recognition || activeOwner !== ownerRef.current) {
       setIsListening(false);
@@ -132,26 +141,35 @@ export function useVoiceDictation({
     }
     activeRecognition = null;
     activeOwner = null;
+    activeShouldKeepListeningRef = null;
     recognitionRef.current = null;
     setIsListening(false);
     setInterimTranscript("");
   }, []);
 
-  const startListening = React.useCallback((language = "es-AR") => {
+  const startRecognition = React.useCallback((language = "es-AR") => {
     const Recognition = getRecognitionConstructor();
     if (!Recognition) {
+      shouldKeepListeningRef.current = false;
       setError("Dictado por voz no disponible en este navegador.");
       return;
     }
 
     if (activeRecognition && activeOwner !== ownerRef.current) {
+      if (activeShouldKeepListeningRef) {
+        activeShouldKeepListeningRef.current = false;
+      }
       try {
         activeRecognition.stop();
-      } catch {
+      } catch (stopError) {
+        if (!(stopError instanceof Error)) {
+          setError("No se pudo detener el dictado anterior.");
+        }
         activeRecognition.abort();
       }
       activeRecognition = null;
       activeOwner = null;
+      activeShouldKeepListeningRef = null;
     }
 
     if (activeRecognition && activeOwner === ownerRef.current) {
@@ -169,24 +187,41 @@ export function useVoiceDictation({
           ? creationError.message
           : "No se pudo iniciar el reconocimiento de voz."
       );
+      shouldKeepListeningRef.current = false;
       return;
     }
 
+    const isAndroid = profile.os === "android";
     recognition.lang = language;
-    recognition.continuous = true;
+    recognition.continuous = !isAndroid;
     recognition.interimResults = true;
     recognitionRef.current = recognition;
     activeRecognition = recognition;
     activeOwner = ownerRef.current;
+    activeShouldKeepListeningRef = shouldKeepListeningRef;
 
     recognition.onresult = (event) => {
       let interim = "";
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      const startIndex = isAndroid
+        ? Math.max(0, event.results.length - 1)
+        : event.resultIndex;
+      for (let index = startIndex; index < event.results.length; index += 1) {
         const result = event.results[index];
         const transcript = result?.[0]?.transcript ?? "";
         if (result?.isFinal) {
-          const normalized = normalizeTarotSpeech(transcript);
-          if (normalized) onTranscriptRef.current?.(normalized);
+          const uniqueTranscript = isAndroid
+            ? removeRepeatedVoicePrefix(
+                lastAndroidFinalRef.current,
+                transcript
+              )
+            : transcript;
+          const normalized = normalizeTarotSpeech(uniqueTranscript);
+          if (normalized) {
+            onTranscriptRef.current?.(normalized);
+            if (isAndroid) {
+              lastAndroidFinalRef.current = transcript.trim();
+            }
+          }
         } else {
           interim += transcript;
         }
@@ -202,12 +237,18 @@ export function useVoiceDictation({
         setError(null);
         return;
       }
+      if (isAndroid && event.error === "no-speech") {
+        setInterimTranscript("");
+        return;
+      }
+      shouldKeepListeningRef.current = false;
       setError(getRecognitionErrorMessage(event.error));
       setIsListening(false);
       setInterimTranscript("");
       if (activeRecognition === recognition) {
         activeRecognition = null;
         activeOwner = null;
+        activeShouldKeepListeningRef = null;
         recognitionRef.current = null;
       }
     };
@@ -219,10 +260,23 @@ export function useVoiceDictation({
         activeOwner = null;
         recognitionRef.current = null;
       }
-      if (fallbackLanguage) {
+      if (fallbackLanguage && shouldKeepListeningRef.current) {
         const fallback = fallbackLanguage;
         fallbackLanguage = null;
-        startListeningRef.current(fallback);
+        startRecognitionRef.current(fallback);
+        return;
+      }
+      if (isAndroid && shouldKeepListeningRef.current) {
+        window.setTimeout(() => {
+          if (
+            !shouldKeepListeningRef.current ||
+            activeOwner !== null ||
+            recognitionRef.current !== null
+          ) {
+            return;
+          }
+          startRecognitionRef.current(language);
+        }, 150);
         return;
       }
       setIsListening(false);
@@ -235,8 +289,10 @@ export function useVoiceDictation({
       if (activeRecognition === recognition) {
         activeRecognition = null;
         activeOwner = null;
+        activeShouldKeepListeningRef = null;
       }
       recognitionRef.current = null;
+      shouldKeepListeningRef.current = false;
       setIsListening(false);
       setError(
         startError instanceof Error
@@ -244,11 +300,17 @@ export function useVoiceDictation({
           : "No se pudo iniciar el dictado."
       );
     }
+  }, [profile.os]);
+
+  const startListening = React.useCallback(() => {
+    shouldKeepListeningRef.current = true;
+    lastAndroidFinalRef.current = "";
+    startRecognitionRef.current("es-AR");
   }, []);
 
   React.useEffect(() => {
-    startListeningRef.current = startListening;
-  }, [startListening]);
+    startRecognitionRef.current = startRecognition;
+  }, [startRecognition]);
 
   const toggleListening = React.useCallback(() => {
     if (isListening) stopListening();
@@ -262,6 +324,8 @@ export function useVoiceDictation({
         recognitionRef.current = null;
         activeRecognition = null;
         activeOwner = null;
+        activeShouldKeepListeningRef = null;
+        shouldKeepListeningRef.current = false;
         recognition?.abort();
       }
     },

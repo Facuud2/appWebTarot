@@ -121,6 +121,24 @@ export function formatSessionDateTime(dateInput: string | Date | null | undefine
   }
 }
 
+export function createReadingTitle(
+  explicitTitle: string,
+  spreadName: string,
+  consultantName?: string | null
+): string {
+  const title = explicitTitle.trim();
+  if (title) return title;
+
+  const structure = spreadName
+    .trim()
+    .replace(/\s*\(\d+\s+cartas?\)\s*$/i, "");
+  const context = [structure, consultantName?.trim()]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+  const words = (context || "Lectura personal").split(/\s+/);
+  return words.length > 6 ? `${words.slice(0, 6).join(" ")}…` : words.join(" ");
+}
+
 export function formatDateLongEs(iso: string): string {
   const d = safeParseDate(iso);
   if (Number.isNaN(d.getTime())) return iso;

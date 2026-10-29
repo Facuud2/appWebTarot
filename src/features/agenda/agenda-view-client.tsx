@@ -33,6 +33,7 @@ import {
   deleteAppointmentAction,
 } from "@/actions/appointment-actions";
 import { ConsultantAvatar } from "@/components/shared/consultant-avatar";
+import { FormattedSessionDateTime } from "@/components/shared/formatted-session-date";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,8 +55,6 @@ import {
 import {
   cn,
   formatDateLongEs,
-  formatDateTimeEs,
-  formatTimeEs,
   safeParseDate,
 } from "@/lib/utils";
 import type {
@@ -248,13 +247,10 @@ export function AgendaViewClient({
               : "flex-col sm:items-end shrink-0"
           )}
         >
-          <time
-            dateTime={appt.scheduledAt}
-            suppressHydrationWarning
+          <FormattedSessionDateTime
+            iso={appt.scheduledAt}
             className="text-xs font-medium text-ink num-tabular"
-          >
-            {formatDateTimeEs(appt.scheduledAt)}
-          </time>
+          />
 
           <div className="flex flex-col gap-2">
             <div className="flex min-w-0 gap-1.5">
@@ -562,7 +558,11 @@ export function AgendaViewClient({
                             key={da.id}
                             className="block truncate rounded bg-ground px-1 py-0.5 text-[10px] text-ink num-tabular border border-border"
                           >
-                            {formatTimeEs(da.scheduledAt)} {da.consultantDisplayName}
+                            <FormattedSessionDateTime
+                              iso={da.scheduledAt}
+                              timeOnly
+                            />{" "}
+                            {da.consultantDisplayName}
                           </span>
                         ))}
                         {dayAppts.length > 2 ? (

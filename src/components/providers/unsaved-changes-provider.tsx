@@ -10,6 +10,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { shouldIgnoreUnsavedPopstate } from "@/hooks/use-mobile-back-close";
+import { setPopstateGuard } from "@/lib/popstate-guard";
 import { Bookmark, AlertTriangle } from "lucide-react";
 
 interface UnsavedChangesContextValue {
@@ -69,21 +71,60 @@ export function UnsavedChangesProvider({
   }, [isDirty]);
 
   // 2. Intercept popstate (browser back/forward)
-  React.useEffect(() => {
-    const handlePopState = () => {
-      if (isDirty) {
-        // Push state back so url doesn't change immediately
-        window.history.pushState(null, "", window.location.href);
-        setPendingHref("BACK");
-        setShowConfirmDialog(true);
-      }
-    };
+  //
+  // The guard listener is registered once, at module evaluation time, so it runs
+  // before the App Router's own popstate listener and can veto the traversal.
+  // See `src/lib/popstate-guard.ts` for why registration order matters here.
+  const guardedHrefRef = React.useRef("");
+  const guardedStateRef = React.useRef<unknown>(null);
+  const dirtyRef = React.useRef(false);
+  const dialogOpenRef = React.useRef(false);
 
-    window.addEventListener("popstate", handlePopState);
-    return () => {
-      window.removeEventListener("popstate", handlePopState);
-    };
-  }, [isDirty]);
+  // Keep the refs in sync synchronously: an update followed by `router.back()`
+  // (discard and leave) must not be blocked by a stale `isDirty`.
+  const updateDirty = React.useCallback((dirty: boolean) => {
+    if (dirty && !dirtyRef.current) {
+      // Freeze the exact guarded URL and history entry at the moment the form
+      // becomes dirty, before any traversal can occur.
+      guardedHrefRef.current = window.location.href;
+      guardedStateRef.current = window.history.state;
+    }
+    dirtyRef.current = dirty;
+    setIsDirty(dirty);
+  }, []);
+
+  const updateDialogOpen = React.useCallback((open: boolean) => {
+    dialogOpenRef.current = open;
+    setShowConfirmDialog(open);
+    if (!open) setPendingHref(null);
+  }, []);
+
+  React.useEffect(() => {
+    return setPopstateGuard(() => {
+      // Overlays (modals, sheets, comboboxes) have priority: they already own
+      // this history entry and will close themselves.
+      if (shouldIgnoreUnsavedPopstate()) return false;
+      if (!dirtyRef.current) return false;
+
+      // The browser already moved to the destination entry by the time
+      // popstate fires: restore the guarded entry before anything else.
+      window.history.pushState(
+        guardedStateRef.current,
+        "",
+        guardedHrefRef.current || window.location.href
+      );
+
+      if (dialogOpenRef.current) {
+        // Back while the prompt is open behaves like "Cancelar".
+        updateDialogOpen(false);
+      } else {
+        setPendingHref("BACK");
+        updateDialogOpen(true);
+      }
+
+      return true;
+    });
+  }, [updateDialogOpen]);
 
   // 3. Intercept link clicks across the entire app shell (bottom bar, sidebar, headers, etc.)
   React.useEffect(() => {
@@ -128,14 +169,14 @@ export function UnsavedChangesProvider({
       e.preventDefault();
       e.stopPropagation();
       setPendingHref(rawHref);
-      setShowConfirmDialog(true);
+      updateDialogOpen(true);
     };
 
     document.addEventListener("click", handleDocumentClick, true);
     return () => {
       document.removeEventListener("click", handleDocumentClick, true);
     };
-  }, [isDirty]);
+  }, [isDirty, updateDialogOpen]);
 
   const executeNavigation = (destination: string | null) => {
     if (!destination) return;
@@ -147,15 +188,13 @@ export function UnsavedChangesProvider({
   };
 
   const handleCancel = () => {
-    setShowConfirmDialog(false);
-    setPendingHref(null);
+    updateDialogOpen(false);
   };
 
   const handleDiscardAndLeave = () => {
-    setIsDirty(false);
-    setShowConfirmDialog(false);
     const dest = pendingHref;
-    setPendingHref(null);
+    updateDirty(false);
+    updateDialogOpen(false);
     executeNavigation(dest);
   };
 
@@ -165,10 +204,9 @@ export function UnsavedChangesProvider({
       try {
         const ok = await saveDraftHandlerRef.current();
         if (ok) {
-          setIsDirty(false);
-          setShowConfirmDialog(false);
           const dest = pendingHref;
-          setPendingHref(null);
+          updateDirty(false);
+          updateDialogOpen(false);
           executeNavigation(dest);
         }
       } catch (err) {
@@ -178,10 +216,9 @@ export function UnsavedChangesProvider({
       }
     } else {
       // If no draft handler is registered, simply navigate
-      setIsDirty(false);
-      setShowConfirmDialog(false);
       const dest = pendingHref;
-      setPendingHref(null);
+      updateDirty(false);
+      updateDialogOpen(false);
       executeNavigation(dest);
     }
   };
@@ -190,13 +227,19 @@ export function UnsavedChangesProvider({
     <UnsavedChangesContext.Provider
       value={{
         isDirty,
-        setIsDirty,
+        setIsDirty: updateDirty,
         registerSaveDraftHandler,
       }}
     >
       {children}
 
-      <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+      <AlertDialog
+        open={showConfirmDialog}
+        mobileBackClose={false}
+        onOpenChange={(open) => {
+          updateDialogOpen(open);
+        }}
+      >
         <AlertDialogContent className="max-w-md p-6">
           <AlertDialogHeader className="space-y-3">
             <div className="flex items-center gap-3">

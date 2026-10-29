@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { DECK_TRADITION_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { Deck, DeckTradition } from "@/types/domain";
@@ -53,6 +54,8 @@ export function Step3Deck({
   const [deckTradition, setDeckTradition] = React.useState<DeckTradition>("rws");
   const [deckAuthor, setDeckAuthor] = React.useState("");
   const [cardCount, setCardCount] = React.useState<number>(78);
+  const [includeClassicStructure, setIncludeClassicStructure] =
+    React.useState(true);
   const [deckDescription, setDeckDescription] = React.useState("");
 
   const handleCreateCustomDeck = async (e: React.FormEvent) => {
@@ -71,6 +74,7 @@ export function Step3Deck({
         tradition: deckTradition,
         author: deckAuthor.trim(),
         cardCount: cardCount > 0 ? cardCount : 78,
+        includeClassicStructure,
         description: deckDescription.trim(),
         isDefault: true,
       });
@@ -260,16 +264,18 @@ export function Step3Deck({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-[minmax(0,2fr)_minmax(6rem,1fr)] gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="custom-deck-tradition">Tradición base</Label>
                 <select
                   id="custom-deck-tradition"
                   value={deckTradition}
-                  onChange={(e) =>
-                    setDeckTradition(e.target.value as DeckTradition)
-                  }
-                  className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+                  onChange={(e) => {
+                    const tradition = e.target.value as DeckTradition;
+                    setDeckTradition(tradition);
+                    if (tradition === "other") setIncludeClassicStructure(true);
+                  }}
+                  className="w-full min-w-0 rounded-md border border-border bg-surface px-2 py-2 text-sm text-ink outline-none focus:border-accent"
                 >
                   <option value="rws">Rider-Waite-Smith</option>
                   <option value="marseille">Tarot de Marsella</option>
@@ -292,6 +298,22 @@ export function Step3Deck({
                 />
               </div>
             </div>
+
+            {deckTradition === "other" && cardCount === 78 ? (
+              <label className="flex items-start gap-2 text-xs leading-relaxed text-ink">
+                <Checkbox
+                  checked={includeClassicStructure}
+                  onCheckedChange={(checked) =>
+                    setIncludeClassicStructure(checked === true)
+                  }
+                  className="mt-0.5"
+                />
+                <span>
+                  Incluir estructura clásica de 78 arcanos (22 Mayores y 56
+                  Menores) editable
+                </span>
+              </label>
+            ) : null}
 
             <div className="space-y-1.5">
               <Label htmlFor="custom-deck-author">Autor / Creador (opcional)</Label>

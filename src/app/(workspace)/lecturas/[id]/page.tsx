@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { LiveReadingWorkbench } from "@/features/readings/live-reading-workbench";
 import { listConsultants } from "@/repositories/consultants-repository";
 import {
-  listCanonicalCards,
+  listAllCardsIncludingCustom,
   listDecks,
   listSpreadTemplates,
 } from "@/repositories/grimorio-repository";
@@ -28,7 +28,7 @@ export default async function ReadingDetailPage({
     notFound();
   }
 
-  const cardsCatalog = listCanonicalCards();
+  const cardsCatalog = await listAllCardsIncludingCustom(user.id);
   const consultants = await listConsultants(user.id, { includeArchived: true });
   const decks = await listDecks(user.id);
   const classicSpreads = (await listSpreadTemplates(user.id)).filter(

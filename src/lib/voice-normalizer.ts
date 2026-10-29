@@ -55,6 +55,30 @@ export function normalizeTarotSpeech(rawText: string): string {
   return normalized.trim();
 }
 
+export function removeRepeatedVoicePrefix(
+  previousTranscript: string,
+  currentTranscript: string
+): string {
+  const previous = previousTranscript.trim();
+  const current = currentTranscript.trim();
+  if (!previous || !current) return currentTranscript;
+
+  const comparable = (value: string) =>
+    normalizeTarotSpeech(value)
+      .toLocaleLowerCase()
+      .replace(/[\p{P}\p{S}]+$/u, "");
+  const previousComparable = comparable(previous);
+  const words = current.split(/\s+/);
+
+  for (let end = 1; end <= words.length; end += 1) {
+    if (comparable(words.slice(0, end).join(" ")) === previousComparable) {
+      return words.slice(end).join(" ");
+    }
+  }
+
+  return currentTranscript;
+}
+
 export function appendVoiceTranscript(
   existingText: string,
   normalizedChunk: string
@@ -62,5 +86,7 @@ export function appendVoiceTranscript(
   const chunk = normalizedChunk.trim();
   if (!chunk) return existingText;
   if (!existingText || /\s$/.test(existingText)) return `${existingText}${chunk}`;
-  return `${existingText} ${chunk}`;
+  const needsSentenceBreak =
+    !/[.!?:;,]$/.test(existingText.trimEnd()) && /^\p{Lu}/u.test(chunk);
+  return `${existingText}${needsSentenceBreak ? ". " : " "}${chunk}`;
 }

@@ -29,11 +29,14 @@ interface InstallInstruction {
 }
 
 function getInstructions(platform: PwaPlatform): InstallInstruction[] {
-  if (platform === "ios-chrome") {
+  if (platform === "ios-chrome" || platform === "ipados-chrome") {
+    const isIPad = platform === "ipados-chrome";
     return [
       {
         icon: Share,
-        text: "Toca Compartir (cuadrado con flecha hacia arriba) en la esquina superior derecha, junto a la barra de dirección.",
+        text: isIPad
+          ? "Toca Compartir (cuadrado con flecha hacia arriba) en la barra superior, junto a la barra de dirección."
+          : "Toca Compartir (cuadrado con flecha hacia arriba) en la esquina superior derecha, junto a la barra de dirección.",
       },
       {
         icon: ArrowDown,
@@ -46,11 +49,14 @@ function getInstructions(platform: PwaPlatform): InstallInstruction[] {
     ];
   }
 
-  if (platform === "ios-safari") {
+  if (platform === "ios-safari" || platform === "ipados-safari") {
+    const isIPad = platform === "ipados-safari";
     return [
       {
         icon: Share,
-        text: "Toca Compartir (cuadrado con flecha hacia arriba) en la barra inferior de Safari.",
+        text: isIPad
+          ? "Toca Compartir (cuadrado con flecha hacia arriba) en la barra superior derecha de Safari."
+          : "Toca Compartir (cuadrado con flecha hacia arriba) en la barra inferior de Safari.",
       },
       {
         icon: ArrowDown,
@@ -59,6 +65,23 @@ function getInstructions(platform: PwaPlatform): InstallInstruction[] {
       {
         icon: Check,
         text: "Toca «Agregar» en la esquina superior derecha.",
+      },
+    ];
+  }
+
+  if (platform === "ios-other" || platform === "ipados-other") {
+    return [
+      {
+        icon: Share,
+        text: "Abre el menú Compartir del navegador y busca la opción para añadir Grimorio a la pantalla de inicio.",
+      },
+      {
+        icon: ArrowDown,
+        text: "Selecciona «Agregar a inicio».",
+      },
+      {
+        icon: Check,
+        text: "Confirma la instalación y abre Grimorio desde el nuevo ícono.",
       },
     ];
   }
@@ -80,8 +103,12 @@ function getInstructions(platform: PwaPlatform): InstallInstruction[] {
 }
 
 function getBrowserLabel(platform: PwaPlatform): string {
-  if (platform === "ios-chrome") return "Chrome en iPhone o iPad";
-  if (platform === "ios-safari") return "Safari en iPhone o iPad";
+  if (platform === "ios-chrome") return "Chrome en iPhone";
+  if (platform === "ipados-chrome") return "Chrome en iPad";
+  if (platform === "ios-safari") return "Safari en iPhone";
+  if (platform === "ipados-safari") return "Safari en iPad";
+  if (platform === "ios-other") return "tu navegador en iPhone";
+  if (platform === "ipados-other") return "tu navegador en iPad";
   if (platform === "android") return "Chrome en Android";
   return "tu navegador";
 }

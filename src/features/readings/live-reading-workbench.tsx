@@ -31,6 +31,7 @@ import {
   saveReadingSessionAction,
 } from "@/actions/reading-actions";
 import { ConsultantAvatar } from "@/components/shared/consultant-avatar";
+import { FormattedSessionDateTime } from "@/components/shared/formatted-session-date";
 import { SpreadMap, buildSpreadSlots } from "@/components/shared/spread-map";
 import { TarotCardPlate } from "@/components/shared/tarot-card-plate";
 import {
@@ -63,18 +64,17 @@ import {
 } from "@/lib/constants";
 import {
   cn,
+  createReadingTitle,
   formatDateLongEs,
-  formatDateTimeEs,
-  formatTimeEs,
   toDatetimeLocalValue,
 } from "@/lib/utils";
+import { selectDeckCards } from "@/lib/deck-cards";
 import type {
   CanonicalCard,
   CardOrientation,
   Consultant,
   Deck,
   DeckEvent,
-  DeckTradition,
   ReadingDetail,
   ReadingStatus,
   SpreadTemplate,
@@ -377,7 +377,22 @@ export function LiveReadingWorkbench({
   );
 
   // Core editable fields
-  const [title, setTitle] = React.useState(initialReading.title);
+  const [title, setTitle] = React.useState(() => {
+    const savedTitle = initialReading.title.trim();
+    const question = initialReading.questionIntention.trim();
+    const cameFromQuestion =
+      question.length > 0 &&
+      (savedTitle === question ||
+        (savedTitle.length >= 65 && question.startsWith(savedTitle)));
+    const consultantName = consultants.find(
+      (consultant) => consultant.id === initialReading.consultantId
+    )?.displayName;
+    return createReadingTitle(
+      cameFromQuestion ? "" : savedTitle,
+      initialReading.spreadName,
+      consultantName
+    );
+  });
   const [consultantId, setConsultantId] = React.useState(
     initialReading.consultantId ?? ""
   );
@@ -496,18 +511,7 @@ export function LiveReadingWorkbench({
     if (!deckIds.length) {
       return cardsCatalog.filter((c) => c.deckTradition === "rws");
     }
-    const selectedTraditions = new Set(
-      deckIds
-        .map((id) => liveDecks.find((d) => d.id === id)?.tradition)
-        .filter((t): t is DeckTradition => Boolean(t))
-    );
-    if (selectedTraditions.size === 0) {
-      return cardsCatalog.filter((c) => c.deckTradition === "rws");
-    }
-    const matching = cardsCatalog.filter((c) =>
-      selectedTraditions.has(c.deckTradition as DeckTradition)
-    );
-    return matching.length > 0 ? matching : cardsCatalog;
+    return selectDeckCards(cardsCatalog, liveDecks, deckIds);
   }, [cardsCatalog, deckIds, liveDecks]);
 
   const getCardsForSlot = React.useCallback(
@@ -581,9 +585,12 @@ export function LiveReadingWorkbench({
       options: { showToast: boolean }
     ): Promise<boolean> => {
       const cleanTitle =
-        title.trim() ||
-        questionIntention.trim().slice(0, 72) ||
-        `Sesión de lectura · ${performedAt.slice(0, 10)}`;
+        createReadingTitle(
+          title,
+          spreadName,
+          consultants.find((consultant) => consultant.id === consultantId)
+            ?.displayName
+        );
 
       const customPositions = slots.map((s, idx) => ({
         positionIndex: idx + 1,
@@ -673,6 +680,7 @@ export function LiveReadingWorkbench({
       sessionSynthesis,
       closingReflections,
       tags,
+      consultants,
     ]
   );
 
@@ -989,8 +997,9 @@ export function LiveReadingWorkbench({
               ) : (
                 <>
                   <Check className="size-3.5 text-positive" aria-hidden="true" />
-                  <span suppressHydrationWarning>
-                    Guardado · {formatTimeEs(lastSavedIso)}
+                  <span>
+                    Guardado ·{" "}
+                    <FormattedSessionDateTime iso={lastSavedIso} timeOnly />
                   </span>
                 </>
               )}
@@ -2371,8 +2380,8 @@ export function LiveReadingWorkbench({
                             · Carta {ev.linkedPositionIndex}
                           </span>
                         ) : null}
-                        <span className="num-tabular" suppressHydrationWarning>
-                          · {formatDateTimeEs(ev.occurredAt)}
+                        <span className="num-tabular">
+                          · <FormattedSessionDateTime iso={ev.occurredAt} />
                         </span>
                       </div>
 

@@ -181,6 +181,7 @@ export const deckFormSchema = z.object({
     .int()
     .min(10, "Un mazo debe tener al menos 10 cartas.")
     .max(150, "Máximo 150 cartas."),
+  includeClassicStructure: z.boolean().optional(),
   description: z.string().max(1500, "Máximo 1500 caracteres."),
   isDefault: z.boolean(),
 });
@@ -468,4 +469,3 @@ export const onboardingProgressSchema = z.object({
 });
 
 export type OnboardingProgressInput = z.infer<typeof onboardingProgressSchema>;
-

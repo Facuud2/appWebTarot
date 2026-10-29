@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VoiceMicButton } from "@/components/ui/voice-mic-button";
+import { DeviceEnvironmentProvider } from "@/components/providers/device-environment-provider";
 import { appendVoiceTranscript } from "@/lib/voice-normalizer";
 
 interface MockSpeechResult {
@@ -33,6 +34,8 @@ class MockSpeechRecognition {
   }
 }
 
+let originalUserAgentDescriptor: PropertyDescriptor | undefined;
+
 function emitFinalTranscript(
   recognition: MockSpeechRecognition,
   transcript: string
@@ -48,6 +51,10 @@ function emitFinalTranscript(
 describe("native voice dictation", () => {
   beforeEach(() => {
     MockSpeechRecognition.instances = [];
+    originalUserAgentDescriptor = Object.getOwnPropertyDescriptor(
+      navigator,
+      "userAgent"
+    );
     Object.defineProperty(window, "SpeechRecognition", {
       configurable: true,
       value: MockSpeechRecognition,
@@ -56,6 +63,14 @@ describe("native voice dictation", () => {
 
   afterEach(() => {
     delete (window as Window & { SpeechRecognition?: unknown }).SpeechRecognition;
+    if (originalUserAgentDescriptor) {
+      Object.defineProperty(
+        navigator,
+        "userAgent",
+        originalUserAgentDescriptor
+      );
+    }
+    vi.restoreAllMocks();
   });
 
   it("uses Spanish Argentina and appends normalized speech to existing text", async () => {
@@ -135,5 +150,70 @@ describe("native voice dictation", () => {
     const fallbackRecognition = MockSpeechRecognition.instances[1]!;
     expect(fallbackRecognition.lang).toBe(navigator.language || "es-ES");
     expect(fallbackRecognition.start).toHaveBeenCalledOnce();
+  });
+
+  it("restarts non-continuous Android recognition without repeating prior words", async () => {
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (Linux; Android 15) Chrome/133.0",
+    });
+
+    const user = userEvent.setup();
+    const onTranscript = vi.fn();
+    render(
+      <DeviceEnvironmentProvider>
+        <VoiceMicButton fieldLabel="pregunta" onTranscript={onTranscript} />
+      </DeviceEnvironmentProvider>
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Iniciar dictado por voz" })
+    );
+
+    const firstRecognition = MockSpeechRecognition.instances[0]!;
+    expect(firstRecognition.continuous).toBe(false);
+    emitFinalTranscript(firstRecognition, "hola");
+    act(() => firstRecognition.onend?.());
+
+    await waitFor(() => {
+      expect(MockSpeechRecognition.instances).toHaveLength(2);
+      expect(MockSpeechRecognition.instances[1]!.start).toHaveBeenCalledOnce();
+    });
+    const secondRecognition = MockSpeechRecognition.instances[1]!;
+    emitFinalTranscript(secondRecognition, "hola");
+    expect(onTranscript).toHaveBeenCalledOnce();
+    emitFinalTranscript(secondRecognition, "hola buenos días");
+    expect(onTranscript).toHaveBeenLastCalledWith("Buenos días");
+
+    await user.click(
+      screen.getByRole("button", { name: "Detener dictado por voz" })
+    );
+    await new Promise((resolve) => window.setTimeout(resolve, 200));
+    expect(MockSpeechRecognition.instances).toHaveLength(2);
+
+  });
+
+  it("keeps iOS recognition continuous", async () => {
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value:
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Version/18.0 Mobile/15E148 Safari/604.1",
+    });
+    Object.defineProperty(navigator, "platform", {
+      configurable: true,
+      value: "iPhone",
+    });
+
+    const user = userEvent.setup();
+    render(
+      <DeviceEnvironmentProvider>
+        <VoiceMicButton fieldLabel="pregunta" onTranscript={vi.fn()} />
+      </DeviceEnvironmentProvider>
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Iniciar dictado por voz" })
+    );
+
+    expect(MockSpeechRecognition.instances[0]!.continuous).toBe(true);
+    expect(MockSpeechRecognition.instances[0]!.interimResults).toBe(true);
   });
 });

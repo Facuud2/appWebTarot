@@ -11,7 +11,6 @@ import {
 } from "@/lib/constants";
 import {
   formatDateLongEs,
-  formatDateTimeEs,
 } from "@/lib/utils";
 import { listCanonicalCards } from "@/repositories/grimorio-repository";
 import { getDashboardSnapshot } from "@/repositories/readings-repository";
@@ -625,12 +624,10 @@ export default async function HomePage() {
                           {log.noteTitle}
                         </span>
                       )}
-                      <time
-                        dateTime={log.createdAt}
+                      <FormattedSessionDateTime
+                        iso={log.createdAt}
                         className="shrink-0 text-xs text-muted num-tabular"
-                      >
-                        {formatDateTimeEs(log.createdAt)}
-                      </time>
+                      />
                     </div>
                     <p className="break-words text-xs font-medium text-ink/90">
                       {log.noteTitle}
