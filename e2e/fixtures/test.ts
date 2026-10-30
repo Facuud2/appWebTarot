@@ -16,7 +16,7 @@ type Fixtures = {
  *   para el proyecto `ipados-real-ua`.
  */
 export const test = base.extend<Fixtures>({
-  page: async ({ page }, use, testInfo) => {
+  page: async ({ page }, provide, testInfo) => {
     if (testInfo.project.name === "ipados-real-ua") {
       await page.addInitScript(() => {
         Object.defineProperty(navigator, "maxTouchPoints", {
@@ -26,14 +26,14 @@ export const test = base.extend<Fixtures>({
       });
     }
 
-    await use(page);
+    await provide(page);
   },
 
-  account: async ({ page, request }, use, testInfo) => {
+  account: async ({ page, request }, provide, testInfo) => {
     const account = await createIsolatedAccount(request, testInfo.project.name);
     const { cookies } = await request.storageState();
     await page.context().addCookies(cookies);
-    await use(account);
+    await provide(account);
   },
 });
 

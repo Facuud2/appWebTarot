@@ -134,8 +134,12 @@
     max-width: 100vw;
     width: 100%;
     overflow-x: hidden;
+    /* Sin pull-to-refresh ni rebote elástico: la mesa es un instrumento. */
     overscroll-behavior-x: none;
+    overscroll-behavior-y: none;
     touch-action: pan-y;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   body {
@@ -146,6 +150,7 @@
     width: 100%;
     overflow-x: hidden;
     overscroll-behavior-x: none;
+    overscroll-behavior-y: none;
     touch-action: pan-y;
   }
 
@@ -211,6 +216,77 @@
   :focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+  }
+}
+
+/* ============================================================================
+   CAPA 1 — BLINDAJE CONTRA HEURÍSTICAS NATIVAS (iOS, iPadOS y Android)
+
+   WebKit y Blink deciden por su cuenta cuándo ampliar la pantalla, cuándo
+   abrir el menú de selección o cuándo recargar. Estas reglas desactivan esas
+   heurísticas cuando la app se usa como instrumento táctil, sin tocar la
+   escala tipográfica de escritorio.
+   ============================================================================ */
+@layer base {
+  /* 1. Auto-zoom de iOS/iPadOS: todo campo táctil mide al menos 16px.
+     El `!important` vence a `text-sm`/`text-xs` de Tailwind. */
+  @media (hover: none) and (pointer: coarse), screen and (max-width: 768px) {
+    input,
+    select,
+    textarea {
+      font-size: max(16px, 1rem) !important;
+      line-height: 1.35;
+    }
+  }
+
+  /* 2. Sin lupa, sin menú contextual y sin selección accidental. */
+  html,
+  body {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* La escritura sí se selecciona: campos y bloques editoriales explícitos. */
+  input,
+  select,
+  textarea,
+  [contenteditable="true"],
+  [data-selectable="true"],
+  [data-selectable="true"] * {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+  }
+
+  /* 3. Ningún activo se arrastra como imagen fantasma. */
+  img,
+  svg,
+  video,
+  canvas {
+    -webkit-user-drag: none;
+    user-drag: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* 4. Sin double-tap zoom ni destello gris al tocar. */
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  label,
+  [role="button"] {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Las cartas y el tapete gestionan su propio gesto (arrastre). */
+  [data-spread-canvas],
+  [data-spread-card] {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
   }
 }
 

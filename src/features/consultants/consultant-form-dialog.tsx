@@ -134,6 +134,7 @@ export function ConsultantFormDialog({
               <Input
                 id="cons-alias"
                 placeholder="Opcional · se prioriza en listas"
+                autoCapitalize="none"
                 {...form.register("alias")}
               />
             </div>

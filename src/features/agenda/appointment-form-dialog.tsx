@@ -278,6 +278,7 @@ export function AppointmentFormDialog({
                     });
                   }}
                   placeholder="Escribe el nombre o alias (ej. Sofía Méndez o Viajera del Sur)…"
+                  autoCapitalize="none"
                   autoFocus
                 />
                 <p className="text-xs text-muted">

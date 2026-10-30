@@ -18,6 +18,7 @@ import {
 } from "@/components/shared/card-preview-dialog";
 import { CardArtwork, getCardShortName } from "@/components/shared/tarot-card-plate";
 import { cn } from "@/lib/utils";
+import { SPREAD_ZOOM_EVENT, type SpreadZoomDetail } from "@/lib/platform-bridge";
 import type {
   CanonicalCard,
   CardOrientation,
@@ -62,6 +63,21 @@ const MIN_PANEL_HEIGHT = 220;
 const MAX_PANEL_HEIGHT = 640;
 const RESIZE_STEP = 70;
 const EXPANDED_HEIGHT = 520;
+
+/**
+ * Perímetro de seguridad anti edge-swipe.
+ *
+ * iOS y Android reservan entre 20 y 24px en cada borde físico para el gesto de
+ * «volver atrás». Las cartas nunca se dibujan dentro de esa franja: al margen
+ * del lienzo se le suman 20px, y el padding de la página deja otros 16px, así
+ * que siempre quedan ≥ 36px reales desde el borde de la pantalla.
+ */
+const EDGE_SAFE_MARGIN = 20;
+const CARD_WIDTH_BY_HEIGHT = {
+  compact: 72,
+  regular: 78,
+  expanded: 84,
+} as const;
 
 function clamp(val: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, val));
@@ -149,6 +165,7 @@ export function SpreadMap({
   const [draggingIndex, setDraggingIndex] = React.useState<number | null>(null);
   const [isResizingPanel, setIsResizingPanel] = React.useState(false);
   const [previewPositionIndex, setPreviewPositionIndex] = React.useState<number | null>(null);
+  const [canvasWidth, setCanvasWidth] = React.useState(0);
 
   const pointerStartRef = React.useRef<{
     x: number;
@@ -159,6 +176,49 @@ export function SpreadMap({
     startY: number;
     startHeight: number;
   } | null>(null);
+
+  // Ancho real del lienzo: el margen seguro se expresa en píxeles y se
+  // convierte a porcentaje para no depender del viewport.
+  React.useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return undefined;
+
+    const measure = () => {
+      const width = el.getBoundingClientRect().width;
+      setCanvasWidth((previous) =>
+        Math.abs(previous - width) < 0.5 ? previous : width
+      );
+    };
+
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [slots.length]);
+
+  // Ctrl/Cmd + rueda o teclado sobre el tapete: zoom suave del lienzo, nunca
+  // de la interfaz completa.
+  React.useEffect(() => {
+    const handleSpreadZoom = (event: Event) => {
+      const detail = (event as CustomEvent<SpreadZoomDetail>).detail;
+      if (!detail) return;
+      setPanelHeight((height) =>
+        clamp(
+          height + detail.direction * RESIZE_STEP,
+          MIN_PANEL_HEIGHT,
+          MAX_PANEL_HEIGHT
+        )
+      );
+    };
+
+    window.addEventListener(SPREAD_ZOOM_EVENT, handleSpreadZoom);
+    return () => window.removeEventListener(SPREAD_ZOOM_EVENT, handleSpreadZoom);
+  }, []);
 
   React.useEffect(() => {
     if (draggingIndex === null && !isResizingPanel) {
@@ -206,6 +266,24 @@ export function SpreadMap({
     );
   }
 
+  const cardWidthPx =
+    panelHeight < 280
+      ? CARD_WIDTH_BY_HEIGHT.compact
+      : panelHeight >= 450
+        ? CARD_WIDTH_BY_HEIGHT.expanded
+        : CARD_WIDTH_BY_HEIGHT.regular;
+
+  const getSafeXBounds = (width: number) => {
+    if (width <= 0) return { min: 9, max: 91 };
+    const inset = ((cardWidthPx / 2 + EDGE_SAFE_MARGIN) / width) * 100;
+    const min = Math.min(48, Math.max(9, inset));
+    return { min, max: 100 - min };
+  };
+
+  const safeXBounds = getSafeXBounds(canvasWidth);
+  const clampX = (value: number) =>
+    clamp(value, safeXBounds.min, safeXBounds.max);
+
   const computeCoordsFromClient = (
     clientX: number,
     clientY: number
@@ -216,8 +294,9 @@ export function SpreadMap({
     if (rect.width <= 0 || rect.height <= 0) return null;
     const rawX = ((clientX - rect.left) / rect.width) * 100;
     const rawY = ((clientY - rect.top) / rect.height) * 100;
+    const bounds = getSafeXBounds(rect.width);
     return {
-      x: Math.round(clamp(rawX, 9, 91) * 10) / 10,
+      x: Math.round(clamp(rawX, bounds.min, bounds.max) * 10) / 10,
       y: Math.round(clamp(rawY, 14, 86) * 10) / 10,
     };
   };
@@ -408,6 +487,8 @@ export function SpreadMap({
       <div
         ref={containerRef}
         style={{ height: `${panelHeight}px` }}
+        data-spread-canvas="true"
+        data-move-mode={mobileMoveEnabled ? "on" : "off"}
         className={cn(
           "relative w-full overflow-hidden bg-surface/60 select-none transition-[border-color]",
           editable && (mobileMoveEnabled || draggingIndex !== null)
@@ -509,13 +590,14 @@ export function SpreadMap({
             <button
               key={slot.positionIndex}
               type="button"
+              data-spread-card={slot.positionIndex}
               onPointerDown={handlePointerDown}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUpOrCancel}
               onPointerCancel={handlePointerUpOrCancel}
               onClick={handleClick}
               style={{
-                left: `${slot.coordX}%`,
+                left: `${clampX(slot.coordX)}%`,
                 top: `${slot.coordY}%`,
               }}
               aria-pressed={isSelected}

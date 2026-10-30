@@ -469,6 +469,7 @@ export function GrimorioBrowserClient({
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Buscar carta, palabra clave o símbolo…"
+                  autoCapitalize="none"
                   className="pl-9"
                 />
               </div>
@@ -895,6 +896,7 @@ export function GrimorioBrowserClient({
               <Input
                 id="deck-name"
                 placeholder="Ej. Tarot de Marsella Camoin-Jodorowsky"
+                autoCapitalize="none"
                 {...deckForm.register("name")}
               />
               {deckForm.formState.errors.name ? (
@@ -904,7 +906,7 @@ export function GrimorioBrowserClient({
               ) : null}
             </div>
 
-            <div className="grid grid-cols-[minmax(0,2fr)_minmax(6rem,1fr)] gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(6rem,1fr)]">
               <div className="space-y-1.5">
                 <Label htmlFor="deck-tradition">Mazo / Tradición</Label>
                 <select

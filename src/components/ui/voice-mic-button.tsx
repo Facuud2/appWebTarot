@@ -22,6 +22,7 @@ export function VoiceMicButton({
     isListening,
     interimTranscript,
     error,
+    platformNotice,
     toggleListening,
   } = useVoiceDictation({ onTranscript });
 
@@ -35,12 +36,15 @@ export function VoiceMicButton({
         disabled={unavailable}
         aria-label={isListening ? "Detener dictado por voz" : "Iniciar dictado por voz"}
         aria-pressed={isListening}
+        data-voice-platform={platformNotice ? "restricted" : "native"}
         title={
-          isSupported
-            ? isListening
-              ? `Detener dictado en ${fieldLabel}`
-              : `Dictar en ${fieldLabel}`
-            : "Dictado por voz no disponible en este navegador"
+          platformNotice && !isListening
+            ? platformNotice
+            : isSupported
+              ? isListening
+                ? `Detener dictado en ${fieldLabel}`
+                : `Dictar en ${fieldLabel}`
+              : "Dictado por voz no disponible en este navegador"
         }
         className={cn(
           "inline-flex size-11 shrink-0 items-center justify-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-45",

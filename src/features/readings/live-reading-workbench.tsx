@@ -1173,7 +1173,10 @@ export function LiveReadingWorkbench({
         /* =========================================================
            VISTA RESUMEN (LECTURA LIMPIA E IMPRESIÓN)
            ========================================================= */
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 items-start">
+        <div
+          data-selectable="true"
+          className="grid grid-cols-1 gap-6 lg:grid-cols-12 items-start"
+        >
           <div className="min-w-0 lg:col-span-8 space-y-6">
             <section className="rounded-xl border border-border bg-surface p-4 sm:p-6 space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Instrument_Sans, Instrument_Serif } from "next/font/google";
 import { AppProviders } from "@/components/providers/app-providers";
 import { DeviceEnvironmentProvider } from "@/components/providers/device-environment-provider";
+import { OsAccessibilityGuard } from "@/components/providers/os-accessibility-guard";
 import { PwaInstallProvider } from "@/components/providers/pwa-install-provider";
 import "./globals.css";
 
@@ -62,6 +63,7 @@ export default function RootLayout({
     >
       <body suppressHydrationWarning>
         <DeviceEnvironmentProvider>
+          <OsAccessibilityGuard />
           <AppProviders>
             <PwaInstallProvider>{children}</PwaInstallProvider>
           </AppProviders>

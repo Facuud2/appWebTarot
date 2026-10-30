@@ -93,6 +93,9 @@ export function GlobalCommandPalette({
               value={query}
               onValueChange={setQuery}
               placeholder="Buscar lecturas, consultantes, cartas o acciones…"
+              spellCheck={false}
+              autoCorrect="off"
+              autoCapitalize="none"
               className="w-full bg-transparent text-sm text-ink placeholder:text-faint outline-none pr-8"
             />
           </div>

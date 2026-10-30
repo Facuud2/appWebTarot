@@ -273,7 +273,7 @@ export function Step3Deck({
               />
             </div>
 
-            <div className="grid grid-cols-[minmax(0,2fr)_minmax(6rem,1fr)] gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(6rem,1fr)]">
               <div className="space-y-1.5">
                 <Label htmlFor="custom-deck-tradition">Tradición base</Label>
                 <select

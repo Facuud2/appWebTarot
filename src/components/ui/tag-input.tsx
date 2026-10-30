@@ -51,6 +51,7 @@ export function TagInput({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder={placeholder}
+          autoCapitalize="none"
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === ",") {
               e.preventDefault();

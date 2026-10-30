@@ -101,6 +101,7 @@ export function ConsultantsDirectoryClient({
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Buscar por nombre, alias o notas…"
               aria-label="Buscar consultantes"
+              autoCapitalize="none"
               className="pl-9 h-9"
             />
           </div>

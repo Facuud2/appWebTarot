@@ -3,6 +3,11 @@
 import * as React from "react";
 import { useDeviceEnvironment } from "@/components/providers/device-environment-provider";
 import {
+  getPlatformVoiceNotice,
+  hasLocalTranscriptionBridge,
+  isElectronRuntime,
+} from "@/lib/platform-bridge";
+import {
   normalizeTarotSpeech,
   removeRepeatedVoicePrefix,
 } from "@/lib/voice-normalizer";
@@ -56,6 +61,7 @@ interface UseVoiceDictationResult {
   isListening: boolean;
   interimTranscript: string;
   error: string | null;
+  platformNotice: string | null;
   startListening: () => void;
   stopListening: () => void;
   toggleListening: () => void;
@@ -103,16 +109,31 @@ function getServerVoiceSupportSnapshot(): boolean {
   return false;
 }
 
+function getServerPlatformVoiceNotice(): string | null {
+  return null;
+}
+
 function getRecognitionConstructor(): SpeechRecognitionConstructor | null {
   if (typeof window === "undefined") return null;
   return window.SpeechRecognition ?? window.webkitSpeechRecognition ?? null;
 }
 
-function getRecognitionErrorMessage(error: string): string {
+function getRecognitionErrorMessage(
+  error: string,
+  electronWithoutBridge = false
+): string {
+  if (
+    electronWithoutBridge &&
+    (error === "network" || error === "service-not-allowed")
+  ) {
+    return "El dictado en la nube no está disponible dentro de la app de escritorio. Escribe la nota o conecta un motor local de transcripción.";
+  }
   switch (error) {
     case "not-allowed":
     case "service-not-allowed":
       return "El navegador no tiene permiso para usar el micrófono.";
+    case "network":
+      return "El servicio de dictado no está disponible en este entorno. Puedes escribir la nota.";
     case "audio-capture":
       return "No se encontró un micrófono disponible.";
     case "no-speech":
@@ -142,6 +163,11 @@ export function useVoiceDictation({
   );
   const [interimTranscript, setInterimTranscript] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
+  const platformNotice = React.useSyncExternalStore(
+    subscribeToVoiceSupport,
+    getPlatformVoiceNotice,
+    getServerPlatformVoiceNotice
+  );
 
   React.useEffect(() => {
     onTranscriptRef.current = onTranscript;
@@ -179,6 +205,14 @@ export function useVoiceDictation({
   const startRecognition = React.useCallback((language = "es-AR") => {
     const beginSession = () => {
       if (!shouldKeepListeningRef.current) return;
+      const platformBlock = getPlatformVoiceNotice();
+      if (platformBlock) {
+        shouldKeepListeningRef.current = false;
+        setIsListening(false);
+        setInterimTranscript("");
+        setError(platformBlock);
+        return;
+      }
       const Recognition = getRecognitionConstructor();
       if (!Recognition) {
         shouldKeepListeningRef.current = false;
@@ -188,6 +222,8 @@ export function useVoiceDictation({
 
       setError(null);
       setInterimTranscript("");
+      const electronVoiceBlocked =
+        isElectronRuntime() && !hasLocalTranscriptionBridge();
       let recognition: SpeechRecognitionLike;
       try {
         recognition = new Recognition();
@@ -270,7 +306,7 @@ export function useVoiceDictation({
           return;
         }
         shouldKeepListeningRef.current = false;
-        setError(getRecognitionErrorMessage(event.error));
+        setError(getRecognitionErrorMessage(event.error, electronVoiceBlocked));
         setIsListening(false);
         setInterimTranscript("");
         if (activeRecognition === recognition) {
@@ -450,6 +486,7 @@ export function useVoiceDictation({
     isListening,
     interimTranscript,
     error,
+    platformNotice,
     startListening,
     stopListening,
     toggleListening,
