@@ -12,8 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TagInput } from "@/components/ui/tag-input";
-import { Textarea } from "@/components/ui/textarea";
-import { VoiceMicButton } from "@/components/ui/voice-mic-button";
+import { VoiceTextarea } from "@/components/ui/voice-textarea";
 import { TarotCardPlate } from "@/components/shared/tarot-card-plate";
 import {
   compressAndStoreCardImage,
@@ -21,7 +20,6 @@ import {
 } from "@/lib/card-image-store";
 import { DECK_TRADITION_LABELS } from "@/lib/constants";
 import { formatDateTimeEs } from "@/lib/utils";
-import { appendVoiceTranscript } from "@/lib/voice-normalizer";
 import {
   personalCardEntrySchema,
   type PersonalCardEntryValues,
@@ -97,6 +95,22 @@ export function CardDetailEditor({
   const watchedLogEvolution = useWatch({
     control: form.control,
     name: "logEvolutionEntry",
+  });
+  const watchedPersonalMeaning = useWatch({
+    control: form.control,
+    name: "personalMeaning",
+  });
+  const watchedReversedMeaning = useWatch({
+    control: form.control,
+    name: "reversedMeaning",
+  });
+  const watchedSymbols = useWatch({
+    control: form.control,
+    name: "symbolsAssociations",
+  });
+  const watchedReflections = useWatch({
+    control: form.control,
+    name: "reflections",
   });
 
   const handleCardImageChange = async (
@@ -231,91 +245,42 @@ export function CardDetailEditor({
           </div>
         </div>
 
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <Label htmlFor="card-personal-meaning">
-              Significado personal al derecho
-            </Label>
-            <VoiceMicButton
-              fieldLabel="significado personal"
-              onTranscript={(chunk) =>
-                form.setValue(
-                  "personalMeaning",
-                  appendVoiceTranscript(
-                    form.getValues("personalMeaning"),
-                    chunk
-                  ),
-                  { shouldDirty: true }
-                )
-              }
-            />
-          </div>
-          <Textarea
-            id="card-personal-meaning"
-            rows={4}
-            placeholder="Cómo se manifiesta esta carta en tu propia práctica, más allá de los manuales…"
-            {...form.register("personalMeaning")}
-          />
-          {form.formState.errors.personalMeaning ? (
-            <p className="text-xs text-negative">
-              {form.formState.errors.personalMeaning.message}
-            </p>
-          ) : null}
-        </div>
+        <VoiceTextarea
+          id="card-personal-meaning"
+          label="Significado personal al derecho"
+          fieldLabel="significado personal"
+          rows={4}
+          value={watchedPersonalMeaning ?? ""}
+          onChange={(next) =>
+            form.setValue("personalMeaning", next, { shouldDirty: true })
+          }
+          error={form.formState.errors.personalMeaning?.message}
+          placeholder="Cómo se manifiesta esta carta en tu propia práctica, más allá de los manuales…"
+        />
 
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <Label htmlFor="card-reversed-meaning">
-              Lectura personal invertida o bloqueada
-            </Label>
-            <VoiceMicButton
-              fieldLabel="lectura personal invertida"
-              onTranscript={(chunk) =>
-                form.setValue(
-                  "reversedMeaning",
-                  appendVoiceTranscript(
-                    form.getValues("reversedMeaning"),
-                    chunk
-                  ),
-                  { shouldDirty: true }
-                )
-              }
-            />
-          </div>
-          <Textarea
-            id="card-reversed-meaning"
-            rows={3}
-            placeholder="Cómo interpretas esta carta cuando aparece invertida o bloqueada…"
-            {...form.register("reversedMeaning")}
-          />
-        </div>
+        <VoiceTextarea
+          id="card-reversed-meaning"
+          label="Lectura personal invertida o bloqueada"
+          fieldLabel="lectura personal invertida"
+          rows={3}
+          value={watchedReversedMeaning ?? ""}
+          onChange={(next) =>
+            form.setValue("reversedMeaning", next, { shouldDirty: true })
+          }
+          placeholder="Cómo interpretas esta carta cuando aparece invertida o bloqueada…"
+        />
 
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <Label htmlFor="card-symbols">
-              Símbolos, gestos y asociaciones visuales propias
-            </Label>
-            <VoiceMicButton
-              fieldLabel="símbolos y asociaciones de la carta"
-              onTranscript={(chunk) =>
-                form.setValue(
-                  "symbolsAssociations",
-                  appendVoiceTranscript(
-                    form.getValues("symbolsAssociations"),
-                    chunk
-                  ),
-                  { shouldDirty: true }
-                )
-              }
-            />
-          </div>
-          <Textarea
-            id="card-symbols"
-            rows={3}
-            placeholder="Detalles visuales, colores, dirección de la mirada o escenas cotidianas asociadas…"
-            {...form.register("symbolsAssociations")}
-          />
-        </div>
+        <VoiceTextarea
+          id="card-symbols"
+          label="Símbolos, gestos y asociaciones visuales propias"
+          fieldLabel="símbolos y asociaciones de la carta"
+          rows={3}
+          value={watchedSymbols ?? ""}
+          onChange={(next) =>
+            form.setValue("symbolsAssociations", next, { shouldDirty: true })
+          }
+          placeholder="Detalles visuales, colores, dirección de la mirada o escenas cotidianas asociadas…"
+        />
 
         <div className="space-y-1.5">
           <Label htmlFor="card-keywords">Palabras clave propias</Label>
@@ -329,29 +294,17 @@ export function CardDetailEditor({
           />
         </div>
 
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <Label htmlFor="card-reflections">
-              Notas de estudio y observaciones
-            </Label>
-            <VoiceMicButton
-              fieldLabel="notas de estudio"
-              onTranscript={(chunk) =>
-                form.setValue(
-                  "reflections",
-                  appendVoiceTranscript(form.getValues("reflections"), chunk),
-                  { shouldDirty: true }
-                )
-              }
-            />
-          </div>
-          <Textarea
-            id="card-reflections"
-            rows={3}
-            placeholder="Comparativas entre mazos, preguntas abiertas, combinaciones frecuentes con otras cartas…"
-            {...form.register("reflections")}
-          />
-        </div>
+        <VoiceTextarea
+          id="card-reflections"
+          label="Notas de estudio y observaciones"
+          fieldLabel="notas de estudio"
+          rows={3}
+          value={watchedReflections ?? ""}
+          onChange={(next) =>
+            form.setValue("reflections", next, { shouldDirty: true })
+          }
+          placeholder="Comparativas entre mazos, preguntas abiertas, combinaciones frecuentes con otras cartas…"
+        />
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">

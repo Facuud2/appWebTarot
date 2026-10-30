@@ -8,6 +8,12 @@ import {
   isElectronRuntime,
 } from "@/lib/platform-bridge";
 import {
+  createEmptyVoiceFrame,
+  createVoiceAudioMeter,
+  type VoiceAudioFrame,
+  type VoiceAudioMeter,
+} from "@/lib/voice-audio-meter";
+import {
   normalizeTarotSpeech,
   removeRepeatedVoicePrefix,
 } from "@/lib/voice-normalizer";
@@ -62,6 +68,10 @@ interface UseVoiceDictationResult {
   interimTranscript: string;
   error: string | null;
   platformNotice: string | null;
+  /** Nivel real del micrófono, de 0 (silencio) a 1 (voz fuerte). */
+  audioLevel: number;
+  /** Bandas de frecuencia reales para dibujar la onda. */
+  audioBands: number[];
   startListening: () => void;
   stopListening: () => void;
   toggleListening: () => void;
@@ -84,6 +94,13 @@ let pendingStartTimer: number | null = null;
 
 let micPrimed = false;
 let micPriming: Promise<void> | null = null;
+
+/**
+ * Algunos navegadores móviles no toleran una segunda captura del micrófono en
+ * paralelo al reconocimiento. Si eso ocurre, el dictado sigue funcionando sin
+ * medidor antes que romperlo.
+ */
+let meterBlocked = false;
 
 /**
  * Pide el permiso del micrófono antes de iniciar el reconocimiento. Si el
@@ -192,6 +209,15 @@ export function useVoiceDictation({
   const stopReleaseTimerRef = React.useRef<number | null>(null);
   const lastAndroidFinalRef = React.useRef("");
   const startRecognitionRef = React.useRef<(language?: string) => void>(() => {});
+  /** Distingue un `abort()` nuestro de una interrupción externa del navegador. */
+  const intentionalStopRef = React.useRef(false);
+  const lastStartAttemptRef = React.useRef(0);
+  const meterRef = React.useRef<VoiceAudioMeter | null>(null);
+  const meterStreamRef = React.useRef<MediaStream | null>(null);
+  const meterGenerationRef = React.useRef(0);
+  const wantsMeterRef = React.useRef(false);
+  const [audioFrame, setAudioFrame] =
+    React.useState<VoiceAudioFrame>(createEmptyVoiceFrame);
   const [isListening, setIsListening] = React.useState(false);
   const isSupported = React.useSyncExternalStore(
     subscribeToVoiceSupport,
@@ -215,12 +241,78 @@ export function useVoiceDictation({
     setInterimTranscript("");
   }, []);
 
+  /**
+   * Cierra el analizador y el stream del micrófono. Se llama en cada final de
+   * sesión para que el navegador no deje el micrófono tomado (ni el indicador
+   * de grabación encendido) mientras no se dicta.
+   */
+  const stopAudioMeter = React.useCallback(() => {
+    wantsMeterRef.current = false;
+    meterGenerationRef.current += 1;
+    meterRef.current?.stop();
+    meterRef.current = null;
+    meterStreamRef.current?.getTracks().forEach((track) => track.stop());
+    meterStreamRef.current = null;
+    setAudioFrame(createEmptyVoiceFrame());
+  }, []);
+
+  /**
+   * Abre un stream propio para medir el nivel real. Espera un instante para que
+   * el reconocimiento tome el audio primero: pedir el micrófono en paralelo
+   * antes de `start()` deja sesiones sin captura en algunos móviles.
+   */
+  const startAudioMeter = React.useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      return;
+    }
+    wantsMeterRef.current = true;
+    // El reconocimiento se reinicia solo en móviles: reutilizamos el medidor
+    // vivo en lugar de abrir un stream nuevo en cada reinicio.
+    if (meterRef.current || meterBlocked) return;
+    const generation = meterGenerationRef.current + 1;
+    meterGenerationRef.current = generation;
+
+    await new Promise((resolve) => window.setTimeout(resolve, 120));
+    if (!wantsMeterRef.current || generation !== meterGenerationRef.current) {
+      return;
+    }
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+    } catch {
+      // Sin permiso o sin micrófono: el reconocimiento informará el error y las
+      // barras quedan en el piso. No inventamos movimiento.
+      return;
+    }
+
+    if (!wantsMeterRef.current || generation !== meterGenerationRef.current) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+
+    meterStreamRef.current = stream;
+    meterRef.current = createVoiceAudioMeter(stream, setAudioFrame);
+    if (!meterRef.current) {
+      stream.getTracks().forEach((track) => track.stop());
+      meterStreamRef.current = null;
+    }
+  }, []);
+
   const stopListening = React.useCallback(() => {
     shouldKeepListeningRef.current = false;
     stoppingRef.current = true;
+    intentionalStopRef.current = true;
     if (pendingStart?.owner === ownerRef.current) clearPendingStart();
     setIsListening(false);
     setInterimTranscript("");
+    stopAudioMeter();
 
     const recognition = recognitionRef.current;
     if (!recognition || activeOwner !== ownerRef.current) {
@@ -275,12 +367,14 @@ export function useVoiceDictation({
         release();
       }
     }, 800);
-  }, []);
+  }, [stopAudioMeter]);
 
   const startRecognition = React.useCallback((language = "es-AR") => {
     const beginSession = () => {
       if (!shouldKeepListeningRef.current) return;
       stoppingRef.current = false;
+      intentionalStopRef.current = false;
+      lastStartAttemptRef.current = Date.now();
       if (stopReleaseTimerRef.current !== null) {
         window.clearTimeout(stopReleaseTimerRef.current);
         stopReleaseTimerRef.current = null;
@@ -291,12 +385,16 @@ export function useVoiceDictation({
         setIsListening(false);
         setInterimTranscript("");
         setError(platformBlock);
+        stopAudioMeter();
         return;
       }
       const Recognition = getRecognitionConstructor();
       if (!Recognition) {
         shouldKeepListeningRef.current = false;
+        setIsListening(false);
+        setInterimTranscript("");
         setError("Dictado por voz no disponible en este navegador.");
+        stopAudioMeter();
         return;
       }
 
@@ -314,6 +412,9 @@ export function useVoiceDictation({
             : "No se pudo iniciar el reconocimiento de voz."
         );
         shouldKeepListeningRef.current = false;
+        setIsListening(false);
+        setInterimTranscript("");
+        stopAudioMeter();
         return;
       }
 
@@ -357,6 +458,15 @@ export function useVoiceDictation({
       };
 
       let fallbackLanguage: string | null = null;
+
+      const scheduleRestart = (delay: number) => {
+        window.setTimeout(() => {
+          if (!shouldKeepListeningRef.current) return;
+          if (activeOwner !== null || recognitionRef.current !== null) return;
+          startRecognitionRef.current(language);
+        }, delay);
+      };
+
       recognition.onerror = (event) => {
         if (event.error === "language-not-supported" && language === "es-AR") {
           fallbackLanguage =
@@ -367,10 +477,12 @@ export function useVoiceDictation({
           return;
         }
         if (event.error === "aborted") {
-          // Cierre intencional al cambiar de campo o al desmontar: no es un
-          // error para la persona que dicta.
+          // `abort()` propio (cambio de campo o desmontaje) o interrupción
+          // externa del navegador. En el segundo caso la persona sigue con el
+          // micrófono activo: reabrimos la sesión en vez de dejarla muerta.
+          const intentional = intentionalStopRef.current;
+          intentionalStopRef.current = false;
           setInterimTranscript("");
-          setIsListening(false);
           stoppingRef.current = false;
           if (stopReleaseTimerRef.current !== null) {
             window.clearTimeout(stopReleaseTimerRef.current);
@@ -384,6 +496,13 @@ export function useVoiceDictation({
             recognitionRef.current = null;
           }
           if (activeRecognition === null) runPendingStart();
+          if (!intentional && shouldKeepListeningRef.current) {
+            scheduleRestart(isAndroid ? 200 : 300);
+            return;
+          }
+          shouldKeepListeningRef.current = false;
+          setIsListening(false);
+          stopAudioMeter();
           return;
         }
         if (event.error === "no-speech") {
@@ -394,9 +513,13 @@ export function useVoiceDictation({
         }
         shouldKeepListeningRef.current = false;
         stoppingRef.current = false;
+        if (event.error === "audio-capture" && meterRef.current) {
+          meterBlocked = true;
+        }
         setError(getRecognitionErrorMessage(event.error, electronVoiceBlocked));
         setIsListening(false);
         setInterimTranscript("");
+        stopAudioMeter();
         if (activeRecognition === recognition) {
           activeRecognition = null;
           activeOwner = null;
@@ -439,26 +562,21 @@ export function useVoiceDictation({
         // reabrimos la escucha en cualquier plataforma para que el micrófono
         // no quede inservible hasta recargar la página.
         if (shouldKeepListeningRef.current && activeRecognition === null) {
-          window.setTimeout(() => {
-            if (
-              !shouldKeepListeningRef.current ||
-              activeOwner !== null ||
-              recognitionRef.current !== null
-            ) {
-              return;
-            }
-            startRecognitionRef.current(language);
-          }, isAndroid ? 150 : 250);
+          scheduleRestart(isAndroid ? 150 : 250);
           return;
         }
         // Un arranque encolado pudo crear una sesión nueva dentro de este
         // mismo `end`; en ese caso no apagamos su indicador.
-        if (activeRecognition === null) setIsListening(false);
+        if (activeRecognition === null) {
+          setIsListening(false);
+          stopAudioMeter();
+        }
       };
 
       try {
         recognition.start();
         setIsListening(true);
+        void startAudioMeter();
       } catch (startError) {
         stoppingRef.current = false;
         if (activeRecognition === recognition) {
@@ -476,15 +594,12 @@ export function useVoiceDictation({
           startError.name === "InvalidStateError" &&
           shouldKeepListeningRef.current
         ) {
-          window.setTimeout(() => {
-            if (shouldKeepListeningRef.current) {
-              startRecognitionRef.current(language);
-            }
-          }, 250);
+          scheduleRestart(250);
           return;
         }
         shouldKeepListeningRef.current = false;
         setError("No se pudo iniciar el dictado. Vuelve a intentarlo.");
+        stopAudioMeter();
       }
     };
 
@@ -560,11 +675,17 @@ export function useVoiceDictation({
         if (!activeRecognition) beginSession();
       });
     }
-  }, [profile.os, resetOwnerState]);
+  }, [profile.os, resetOwnerState, startAudioMeter, stopAudioMeter]);
 
   const startListening = React.useCallback(() => {
     shouldKeepListeningRef.current = true;
     lastAndroidFinalRef.current = "";
+    intentionalStopRef.current = false;
+    lastStartAttemptRef.current = Date.now();
+    setError(null);
+    // Respuesta inmediata: la superficie de ondas toma el lugar del campo
+    // mientras se resuelve el permiso o el arranque del reconocimiento.
+    setIsListening(true);
     startRecognitionRef.current("es-AR");
   }, []);
 
@@ -577,10 +698,42 @@ export function useVoiceDictation({
     else startListening();
   }, [isListening, startListening, stopListening]);
 
+  /**
+   * Perro guardián: si la intención de escucha sigue viva pero no hay sesión
+   * activa (un `end` perdido, la app en segundo plano, un cambio de pestaña),
+   * reabrimos el micrófono sin obligar a recargar la página.
+   */
+  React.useEffect(() => {
+    if (!isListening) return;
+    const id = window.setInterval(() => {
+      if (!shouldKeepListeningRef.current) return;
+      if (activeRecognition !== null || recognitionRef.current !== null) return;
+      if (pendingStart !== null || stoppingRef.current) return;
+      if (Date.now() - lastStartAttemptRef.current < 1200) return;
+      startRecognitionRef.current("es-AR");
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [isListening]);
+
+  React.useEffect(() => {
+    if (typeof document === "undefined") return;
+    const handleVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!shouldKeepListeningRef.current) return;
+      if (activeRecognition !== null || recognitionRef.current !== null) return;
+      if (Date.now() - lastStartAttemptRef.current < 600) return;
+      startRecognitionRef.current("es-AR");
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () =>
+      document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
+
   React.useEffect(
     () => () => {
       shouldKeepListeningRef.current = false;
       stoppingRef.current = false;
+      stopAudioMeter();
       if (stopReleaseTimerRef.current !== null) {
         window.clearTimeout(stopReleaseTimerRef.current);
         stopReleaseTimerRef.current = null;
@@ -601,7 +754,7 @@ export function useVoiceDictation({
         if (activeRecognition === null) runPendingStart();
       }
     },
-    []
+    [stopAudioMeter]
   );
 
   return {
@@ -610,6 +763,8 @@ export function useVoiceDictation({
     interimTranscript,
     error,
     platformNotice,
+    audioLevel: audioFrame.level,
+    audioBands: audioFrame.bands,
     startListening,
     stopListening,
     toggleListening,

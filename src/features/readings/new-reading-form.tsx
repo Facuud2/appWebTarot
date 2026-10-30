@@ -62,8 +62,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TagInput } from "@/components/ui/tag-input";
-import { Textarea } from "@/components/ui/textarea";
-import { VoiceMicButton } from "@/components/ui/voice-mic-button";
+import { VoiceTextarea } from "@/components/ui/voice-textarea";
 import {
   DECK_PHASE_LABELS,
   DECK_TRADITION_LABELS,
@@ -76,7 +75,6 @@ import {
   toIsoUtcString,
 } from "@/lib/utils";
 import { isBuiltinDeck, selectDeckCards } from "@/lib/deck-cards";
-import { appendVoiceTranscript } from "@/lib/voice-normalizer";
 import type { ReadingCardInput } from "@/schemas/domain";
 import type {
   Appointment,
@@ -1818,53 +1816,31 @@ export function NewReadingForm({
             </div>
 
             {/* Pregunta o tema de la consulta */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="step1-intention">
-                  Pregunta o tema de la consulta
-                </Label>
-                <VoiceMicButton
-                  fieldLabel="pregunta o tema de la consulta"
-                  onTranscript={(chunk) =>
-                    setQuestionIntention((current) =>
-                      appendVoiceTranscript(current, chunk)
-                    )
-                  }
-                />
-              </div>
-              <Textarea
-                id="step1-intention"
-                rows={3}
-                value={questionIntention}
-                onChange={(e) => setQuestionIntention(e.target.value)}
-                placeholder="¿Qué desea consultar la persona o qué quieres revisar en esta lectura?"
-              />
-            </div>
+            <VoiceTextarea
+              id="step1-intention"
+              label="Pregunta o tema de la consulta"
+              fieldLabel="pregunta o tema de la consulta"
+              rows={3}
+              value={questionIntention}
+              onChange={setQuestionIntention}
+              placeholder="¿Qué desea consultar la persona o qué quieres revisar en esta lectura?"
+            />
 
             {/* Notas previas / contexto */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="step1-context">
+            <VoiceTextarea
+              id="step1-context"
+              label={
+                <>
                   Notas previas / Contexto{" "}
                   <span className="text-muted font-normal">(opcional)</span>
-                </Label>
-                <VoiceMicButton
-                  fieldLabel="notas previas y contexto"
-                  onTranscript={(chunk) =>
-                    setSessionContext((current) =>
-                      appendVoiceTranscript(current, chunk)
-                    )
-                  }
-                />
-              </div>
-              <Textarea
-                id="step1-context"
-                rows={2}
-                value={sessionContext}
-                onChange={(e) => setSessionContext(e.target.value)}
-                placeholder="Contexto inicial, acuerdos o notas previas a la tirada…"
-              />
-            </div>
+                </>
+              }
+              fieldLabel="notas previas y contexto"
+              rows={2}
+              value={sessionContext}
+              onChange={setSessionContext}
+              placeholder="Contexto inicial, acuerdos o notas previas a la tirada…"
+            />
 
             {/* Bottom Actions for Step 1 */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-t border-border pt-4">
@@ -2221,73 +2197,37 @@ export function NewReadingForm({
 
                     {isNotesExpanded ? (
                       <div className="mt-3 space-y-3 rounded-lg border border-border bg-ground p-3.5 t-page-enter">
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <Label
-                              htmlFor={`notes-obs-${slot.positionIndex}`}
-                              className="text-xs text-muted"
-                            >
-                              Notas sobre la salida y observación inmediata
-                            </Label>
-                            <VoiceMicButton
-                              fieldLabel={`notas de la carta ${slot.positionIndex}`}
-                              onTranscript={(chunk) =>
-                                updateCardSlot(slot.positionIndex, {
-                                  observationNotes: appendVoiceTranscript(
-                                    slot.observationNotes,
-                                    chunk
-                                  ),
-                                })
-                              }
-                            />
-                          </div>
-                          <Textarea
-                            id={`notes-obs-${slot.positionIndex}`}
-                            rows={2}
-                            value={slot.observationNotes}
-                            onChange={(e) =>
-                              updateCardSlot(slot.positionIndex, {
-                                observationNotes: e.target.value,
-                              })
-                            }
-                            placeholder="Detalles de cómo apareció la carta, impresiones espontáneas o simbolismo notorio…"
-                            className="text-xs"
-                          />
-                        </div>
+                        <VoiceTextarea
+                          id={`notes-obs-${slot.positionIndex}`}
+                          label="Notas sobre la salida y observación inmediata"
+                          labelClassName="text-xs text-muted"
+                          fieldLabel={`notas de la carta ${slot.positionIndex}`}
+                          rows={2}
+                          value={slot.observationNotes}
+                          onChange={(next) =>
+                            updateCardSlot(slot.positionIndex, {
+                              observationNotes: next,
+                            })
+                          }
+                          placeholder="Detalles de cómo apareció la carta, impresiones espontáneas o simbolismo notorio…"
+                          textareaClassName="text-xs"
+                        />
 
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between gap-2">
-                            <Label
-                              htmlFor={`notes-interp-${slot.positionIndex}`}
-                              className="text-xs text-muted"
-                            >
-                              Interpretación contextual
-                            </Label>
-                            <VoiceMicButton
-                              fieldLabel={`interpretación de la carta ${slot.positionIndex}`}
-                              onTranscript={(chunk) =>
-                                updateCardSlot(slot.positionIndex, {
-                                  contextualInterpretation: appendVoiceTranscript(
-                                    slot.contextualInterpretation,
-                                    chunk
-                                  ),
-                                })
-                              }
-                            />
-                          </div>
-                          <Textarea
-                            id={`notes-interp-${slot.positionIndex}`}
-                            rows={2}
-                            value={slot.contextualInterpretation}
-                            onChange={(e) =>
-                              updateCardSlot(slot.positionIndex, {
-                                contextualInterpretation: e.target.value,
-                              })
-                            }
-                            placeholder="¿Qué responde esta carta a la consulta o al consultante?"
-                            className="text-xs"
-                          />
-                        </div>
+                        <VoiceTextarea
+                          id={`notes-interp-${slot.positionIndex}`}
+                          label="Interpretación contextual"
+                          labelClassName="text-xs text-muted"
+                          fieldLabel={`interpretación de la carta ${slot.positionIndex}`}
+                          rows={2}
+                          value={slot.contextualInterpretation}
+                          onChange={(next) =>
+                            updateCardSlot(slot.positionIndex, {
+                              contextualInterpretation: next,
+                            })
+                          }
+                          placeholder="¿Qué responde esta carta a la consulta o al consultante?"
+                          textareaClassName="text-xs"
+                        />
 
                         <label
                           htmlFor={`notes-sync-${slot.positionIndex}`}
@@ -2442,28 +2382,15 @@ export function NewReadingForm({
               />
             </div>
 
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="step3-synthesis">
-                  Significado y observaciones
-                </Label>
-                <VoiceMicButton
-                  fieldLabel="significado y observaciones"
-                  onTranscript={(chunk) =>
-                    setSessionSynthesis((current) =>
-                      appendVoiceTranscript(current, chunk)
-                    )
-                  }
-                />
-              </div>
-              <Textarea
-                id="step3-synthesis"
-                rows={4}
-                value={sessionSynthesis}
-                onChange={(e) => setSessionSynthesis(e.target.value)}
-                placeholder="Significado central de la tirada, atmósfera, sincronicidades, consejo final o plan de acción…"
-              />
-            </div>
+            <VoiceTextarea
+              id="step3-synthesis"
+              label="Significado y observaciones"
+              fieldLabel="significado y observaciones"
+              rows={4}
+              value={sessionSynthesis}
+              onChange={setSessionSynthesis}
+              placeholder="Significado central de la tirada, atmósfera, sincronicidades, consejo final o plan de acción…"
+            />
 
             <div className="space-y-1.5 pb-3">
               <Label>Etiquetas de la lectura</Label>
@@ -2704,52 +2631,32 @@ export function NewReadingForm({
               </select>
             </div>
 
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="modal-desc">Descripción del suceso</Label>
-                <VoiceMicButton
-                  fieldLabel="descripción del suceso"
-                  onTranscript={(chunk) =>
-                    setModalDescription((current) =>
-                      appendVoiceTranscript(current, chunk)
-                    )
-                  }
-                />
-              </div>
-              <Textarea
-                id="modal-desc"
-                rows={2}
-                value={modalDescription}
-                onChange={(e) => setModalDescription(e.target.value)}
-                placeholder="Ej. La carta saltó sola hacia la derecha al mezclar la segunda pasada…"
-                className="text-xs"
-              />
-            </div>
+            <VoiceTextarea
+              id="modal-desc"
+              label="Descripción del suceso"
+              fieldLabel="descripción del suceso"
+              rows={2}
+              value={modalDescription}
+              onChange={setModalDescription}
+              placeholder="Ej. La carta saltó sola hacia la derecha al mezclar la segunda pasada…"
+              textareaClassName="text-xs"
+            />
 
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <Label htmlFor="modal-interp">
+            <VoiceTextarea
+              id="modal-interp"
+              label={
+                <>
                   Interpretación intuitiva{" "}
                   <span className="text-muted font-normal">(opcional)</span>
-                </Label>
-                <VoiceMicButton
-                  fieldLabel="interpretación intuitiva"
-                  onTranscript={(chunk) =>
-                    setModalInterpretation((current) =>
-                      appendVoiceTranscript(current, chunk)
-                    )
-                  }
-                />
-              </div>
-              <Textarea
-                id="modal-interp"
-                rows={2}
-                value={modalInterpretation}
-                onChange={(e) => setModalInterpretation(e.target.value)}
-                placeholder="¿Qué significado o aviso sugiere este fenómeno?"
-                className="text-xs"
-              />
-            </div>
+                </>
+              }
+              fieldLabel="interpretación intuitiva"
+              rows={2}
+              value={modalInterpretation}
+              onChange={setModalInterpretation}
+              placeholder="¿Qué significado o aviso sugiere este fenómeno?"
+              textareaClassName="text-xs"
+            />
           </div>
 
           <DialogFooter>

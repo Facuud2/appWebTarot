@@ -19,11 +19,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { TagInput } from "@/components/ui/tag-input";
-import { Textarea } from "@/components/ui/textarea";
-import { VoiceMicButton } from "@/components/ui/voice-mic-button";
+import { VoiceTextarea } from "@/components/ui/voice-textarea";
 import { DECK_PHASE_LABELS } from "@/lib/constants";
 import { cn, toDatetimeLocalValue } from "@/lib/utils";
-import { appendVoiceTranscript } from "@/lib/voice-normalizer";
 import {
   deckEventFormSchema,
   type DeckEventFormValues,
@@ -137,6 +135,14 @@ export function DeckEventSheet({
   const occurredAtValue = useWatch({
     control: form.control,
     name: "occurredAt",
+  });
+  const observationDescription = useWatch({
+    control: form.control,
+    name: "observationDescription",
+  });
+  const personalInterpretation = useWatch({
+    control: form.control,
+    name: "personalInterpretation",
   });
 
   const linkedPositionObj = availablePositions.find(
@@ -286,66 +292,41 @@ export function DeckEventSheet({
           </div>
 
           {/* Description of what happened */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <Label htmlFor="event-observation">
-                1. Qué ocurrió en la mesa
-              </Label>
-              <VoiceMicButton
-                fieldLabel="descripción del evento"
-                onTranscript={(chunk) =>
-                  form.setValue(
-                    "observationDescription",
-                    appendVoiceTranscript(
-                      form.getValues("observationDescription"),
-                      chunk
-                    ),
-                    { shouldDirty: true, shouldValidate: true }
-                  )
-                }
-              />
-            </div>
-            <Textarea
-              id="event-observation"
-              rows={2}
-              placeholder="Qué pasó exactamente: cómo cayó, hacia dónde miraba la figura, sobre qué otra carta quedó…"
-              {...form.register("observationDescription")}
-            />
-            {form.formState.errors.observationDescription ? (
-              <p className="text-xs text-negative">
-                {form.formState.errors.observationDescription.message}
-              </p>
-            ) : null}
-          </div>
+          <VoiceTextarea
+            id="event-observation"
+            label="1. Qué ocurrió en la mesa"
+            fieldLabel="descripción del evento"
+            rows={2}
+            value={observationDescription ?? ""}
+            onChange={(next) =>
+              form.setValue("observationDescription", next, {
+                shouldDirty: true,
+                shouldValidate: true,
+              })
+            }
+            error={form.formState.errors.observationDescription?.message}
+            placeholder="Qué pasó exactamente: cómo cayó, hacia dónde miraba la figura, sobre qué otra carta quedó…"
+          />
 
           {/* Personal interpretation */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <Label htmlFor="event-interpretation">
+          <VoiceTextarea
+            id="event-interpretation"
+            label={
+              <>
                 2. Significado o interpretación en la sesión{" "}
                 <span className="text-muted font-normal">(opcional)</span>
-              </Label>
-              <VoiceMicButton
-                fieldLabel="interpretación del evento"
-                onTranscript={(chunk) =>
-                  form.setValue(
-                    "personalInterpretation",
-                    appendVoiceTranscript(
-                      form.getValues("personalInterpretation"),
-                      chunk
-                    ),
-                    { shouldDirty: true }
-                  )
-                }
-              />
-            </div>
-            <Textarea
-              id="event-interpretation"
-              rows={2}
-              placeholder="Qué lectura o sentido le diste dentro de esta consulta…"
-              {...form.register("personalInterpretation")}
-            />
-          </div>
+              </>
+            }
+            fieldLabel="interpretación del evento"
+            rows={2}
+            value={personalInterpretation ?? ""}
+            onChange={(next) =>
+              form.setValue("personalInterpretation", next, {
+                shouldDirty: true,
+              })
+            }
+            placeholder="Qué lectura o sentido le diste dentro de esta consulta…"
+          />
 
           {/* DateTime & Tags */}
           <div className="grid gap-3 sm:grid-cols-2">

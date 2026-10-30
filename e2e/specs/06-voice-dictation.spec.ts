@@ -4,7 +4,9 @@ import {
   emitSpeechError,
   expectedOs,
   getLastRecognition,
+  mockMicrophone,
   mockSpeechRecognition,
+  setMicrophoneLevel,
 } from "../fixtures/device";
 
 async function openStepOne(page: import("@playwright/test").Page) {
@@ -16,6 +18,14 @@ async function openStepOne(page: import("@playwright/test").Page) {
   await page.waitForTimeout(500);
 }
 
+async function barScale(bar: import("@playwright/test").Locator) {
+  return bar.evaluate((element) => {
+    const transform = (element as HTMLElement).style.transform;
+    const match = /scaleY\(([\d.]+)\)/.exec(transform);
+    return match ? Number(match[1]) : 0;
+  });
+}
+
 test.describe("Dictado por voz @device", () => {
   test("activa el micrófono con el modo continuo de cada plataforma", async ({
     page,
@@ -23,6 +33,7 @@ test.describe("Dictado por voz @device", () => {
   }, testInfo) => {
     void account;
     await mockSpeechRecognition(page);
+    await mockMicrophone(page);
     await openStepOne(page);
 
     await page
@@ -45,12 +56,13 @@ test.describe("Dictado por voz @device", () => {
     );
   });
 
-  test("vuelca la transcripción final y el texto provisional en la pregunta", async ({
+  test("el campo se convierte en ondas que suben sólo cuando hay audio", async ({
     page,
     account,
   }) => {
     void account;
     await mockSpeechRecognition(page);
+    await mockMicrophone(page, 0);
     await openStepOne(page);
 
     const question = page.getByLabel(/Pregunta o tema de la consulta/i);
@@ -59,17 +71,49 @@ test.describe("Dictado por voz @device", () => {
       .first()
       .click();
 
-    await emitSpeech(page, "el loco");
-    await expect(question).toHaveValue(/El Loco/);
+    // El cuadro de texto se reemplaza por la superficie de ondas.
+    const surface = page
+      .getByRole("group", { name: "Dictado en curso" })
+      .first();
+    await expect(surface).toBeVisible();
+    await expect(question).toHaveCount(0);
 
-    await emitSpeech(page, "y la emperatriz", false);
-    await expect(page.getByText(/y la emperatriz/i).first()).toBeVisible();
-    await expect(question).toHaveValue(/El Loco/);
+    const bar = surface.locator(".voice-live-bar").nth(12);
+    // Sin audio las barras quedan en el piso.
+    await expect.poll(() => barScale(bar)).toBeLessThan(0.1);
+
+    // Con voz suben: no es una animación en bucle.
+    await setMicrophoneLevel(page, 1);
+    await expect.poll(() => barScale(bar)).toBeGreaterThan(0.6);
+
+    // Al volver el silencio, bajan otra vez.
+    await setMicrophoneLevel(page, 0);
+    await expect.poll(() => barScale(bar)).toBeLessThan(0.1);
+  });
+
+  test("vuelca la transcripción final en la pregunta al detener el dictado", async ({
+    page,
+    account,
+  }) => {
+    void account;
+    await mockSpeechRecognition(page);
+    await mockMicrophone(page);
+    await openStepOne(page);
+
+    const question = page.getByLabel(/Pregunta o tema de la consulta/i);
+    await page
+      .getByRole("button", { name: /Iniciar dictado por voz/i })
+      .first()
+      .click();
+
+    await expect(question).toHaveCount(0);
+    await emitSpeech(page, "el loco");
 
     await page
       .getByRole("button", { name: /Detener dictado por voz/i })
       .first()
       .click();
+    await expect(question).toHaveValue(/El Loco/);
     await expect(
       page.getByRole("button", { name: /Iniciar dictado por voz/i }).first()
     ).toBeVisible();
@@ -81,6 +125,7 @@ test.describe("Dictado por voz @device", () => {
   }) => {
     void account;
     await mockSpeechRecognition(page);
+    await mockMicrophone(page);
     await openStepOne(page);
 
     await page
@@ -107,6 +152,7 @@ test.describe("Dictado por voz @device", () => {
   }) => {
     void account;
     await mockSpeechRecognition(page);
+    await mockMicrophone(page);
     await openStepOne(page);
 
     const question = page.getByLabel(/Pregunta o tema de la consulta/i);
@@ -117,7 +163,6 @@ test.describe("Dictado por voz @device", () => {
       .first()
       .click();
     await emitSpeech(page, "el loco");
-    await expect(question).toHaveValue(/El Loco/);
 
     // Cambia de campo sin detener el dictado: la segunda sesión toma el relevo
     // y sólo queda un micrófono activo.
@@ -130,20 +175,24 @@ test.describe("Dictado por voz @device", () => {
     ).toHaveCount(1);
 
     await emitSpeech(page, "la emperatriz");
+    await page
+      .getByRole("button", { name: /Detener dictado por voz/i })
+      .first()
+      .click();
     await expect(context).toHaveValue(/La Emperatriz/);
     // El texto del primer campo no se contamina.
     await expect(question).toHaveValue(/El Loco/);
 
     // Detener y volver a empezar en el primer campo también funciona.
     await page
-      .getByRole("button", { name: /Detener dictado por voz/i })
-      .first()
-      .click();
-    await page
       .getByRole("button", { name: /Iniciar dictado por voz/i })
       .first()
       .click();
     await emitSpeech(page, "el sol");
+    await page
+      .getByRole("button", { name: /Detener dictado por voz/i })
+      .first()
+      .click();
     await expect(question).toHaveValue(/El Loco.*el sol/i);
   });
 });

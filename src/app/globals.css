@@ -318,56 +318,92 @@ html:is([data-os="ios"], [data-os="ipados"], [data-os="android"])
   font-variant-numeric: tabular-nums;
 }
 
-/* Dictado activo: ondas de escucha en lugar del icono de micrófono. */
-.voice-wave {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  height: 18px;
+/* Dictado activo: el campo se convierte en una superficie de ondas reales.
+   La altura de cada barra la escribe el medidor de audio (RMS + frecuencias),
+   no una animación en bucle: si hay silencio, las barras caen. */
+.voice-live-surface {
+  animation: voice-surface-in var(--duration-quick) var(--ease-smooth-out) both;
 }
 
-.voice-wave-bar {
-  width: 2.5px;
-  height: 100%;
-  border-radius: 999px;
-  background-color: currentColor;
-  transform-origin: center;
-  animation: voice-wave-pulse 1s ease-in-out infinite both;
+.voice-field-return {
+  animation: voice-field-return var(--duration-micro) var(--ease-smooth-out)
+    both;
 }
 
-.voice-wave-bar:nth-child(1),
-.voice-wave-bar:nth-child(5) {
-  height: 55%;
-}
-
-.voice-wave-bar:nth-child(2),
-.voice-wave-bar:nth-child(4) {
-  height: 80%;
-}
-
-@keyframes voice-wave-pulse {
-  0%,
-  100% {
-    transform: scaleY(0.28);
-    opacity: 0.55;
+@keyframes voice-surface-in {
+  from {
+    opacity: 0;
+    transform: scale(var(--scale-tiny));
   }
 
-  50% {
-    transform: scaleY(1);
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes voice-field-return {
+  from {
+    opacity: 0;
+  }
+
+  to {
     opacity: 1;
   }
 }
 
+.voice-live-bars {
+  display: flex;
+  height: 46px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+}
+
+.voice-live-bar {
+  width: 3px;
+  max-width: 6px;
+  flex: 1 1 0;
+  height: 100%;
+  border-radius: 999px;
+  background-color: currentColor;
+  transform-origin: center;
+  transform: scaleY(0.05);
+  transition:
+    transform 90ms linear,
+    opacity 90ms linear;
+  will-change: transform, opacity;
+}
+
+.voice-live-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background-color: var(--positive);
+  opacity: 0.3;
+  transition: opacity 120ms linear;
+}
+
+.voice-live-dot[data-active="true"] {
+  opacity: 1;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--positive) 18%, transparent);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .voice-wave-bar {
+  .voice-live-surface,
+  .voice-field-return {
     animation: none;
-    transform: scaleY(0.6);
-    opacity: 0.8;
   }
 
-  .voice-wave-bar:nth-child(2n) {
-    transform: scaleY(1);
+  .voice-live-bar {
+    transition: none;
+  }
+
+  .voice-live-dot {
+    transition: none;
+    box-shadow: none;
   }
 }
 

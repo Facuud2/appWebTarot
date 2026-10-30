@@ -13,10 +13,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { VoiceMicButton } from "@/components/ui/voice-mic-button";
+import { VoiceTextarea } from "@/components/ui/voice-textarea";
 import { compressAndStoreCardImage } from "@/lib/card-image-store";
-import { appendVoiceTranscript } from "@/lib/voice-normalizer";
 import { DECK_TRADITION_LABELS, PHENOMENON_LABELS } from "@/lib/constants";
 import type { CanonicalCard, CardOrientation, DeckPhase, PhenomenonType } from "@/types/domain";
 
@@ -213,34 +211,33 @@ export function CardPreviewDialog({
                 ] as const
               ).map(([field, label]) => {
                 const value = slot[field] ?? "";
-                return (
-                  <div key={field} className="space-y-1">
-                    <div className="flex items-center justify-between gap-2">
+                if (!onNotesChange) {
+                  return (
+                    <div key={field} className="space-y-1">
                       <p className="text-xs font-medium text-muted">{label}</p>
-                      {onNotesChange ? (
-                        <VoiceMicButton
-                          fieldLabel={label.toLowerCase()}
-                          onTranscript={(chunk) =>
-                            updateNote(field, appendVoiceTranscript(value, chunk))
-                          }
-                        />
-                      ) : null}
+                      {value ? (
+                        <p className="whitespace-pre-line text-sm leading-relaxed text-muted">
+                          {value}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-muted">
+                          Sin notas para esta posición.
+                        </p>
+                      )}
                     </div>
-                    {onNotesChange ? (
-                      <Textarea
-                        value={value}
-                        rows={2}
-                        onChange={(event) => updateNote(field, event.target.value)}
-                        aria-label={label}
-                      />
-                    ) : value ? (
-                      <p className="whitespace-pre-line text-sm leading-relaxed text-muted">
-                        {value}
-                      </p>
-                    ) : (
-                      <p className="text-xs text-muted">Sin notas para esta posición.</p>
-                    )}
-                  </div>
+                  );
+                }
+                return (
+                  <VoiceTextarea
+                    key={field}
+                    id={`note-${field}`}
+                    label={label}
+                    labelClassName="text-xs font-medium text-muted"
+                    fieldLabel={label.toLowerCase()}
+                    rows={2}
+                    value={value}
+                    onChange={(next) => updateNote(field, next)}
+                  />
                 );
               })}
             </section>

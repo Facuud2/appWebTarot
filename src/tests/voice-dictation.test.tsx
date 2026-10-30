@@ -2,9 +2,9 @@ import * as React from "react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { VoiceMicButton } from "@/components/ui/voice-mic-button";
+import { VoiceTextarea } from "@/components/ui/voice-textarea";
 import { DeviceEnvironmentProvider } from "@/components/providers/device-environment-provider";
-import { appendVoiceTranscript } from "@/lib/voice-normalizer";
+import { VOICE_BAND_COUNT } from "@/lib/voice-audio-meter";
 
 interface MockSpeechResult {
   isFinal: boolean;
@@ -63,6 +63,30 @@ function emitFinalTranscript(
   });
 }
 
+function DictationField({
+  id = "voice-field",
+  label = "Significado y observaciones",
+  onValue,
+}: {
+  id?: string;
+  label?: string;
+  onValue?: (value: string) => void;
+}) {
+  const [text, setText] = React.useState("");
+  return (
+    <VoiceTextarea
+      id={id}
+      label={label}
+      fieldLabel={label}
+      value={text}
+      onChange={(next) => {
+        setText(next);
+        onValue?.(next);
+      }}
+    />
+  );
+}
+
 describe("native voice dictation", () => {
   beforeEach(() => {
     MockSpeechRecognition.instances = [];
@@ -92,29 +116,14 @@ describe("native voice dictation", () => {
 
   it("uses Spanish Argentina and appends normalized speech to existing text", async () => {
     const user = userEvent.setup();
-    function DictationField() {
-      const [text, setText] = React.useState("");
-      return (
-        <div>
-          <textarea
-            aria-label="Significado y observaciones"
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-          />
-          <VoiceMicButton
-            fieldLabel="significado y observaciones"
-            onTranscript={(chunk) =>
-              setText((current) => appendVoiceTranscript(current, chunk))
-            }
-          />
-        </div>
-      );
-    }
-
     render(<DictationField />);
-    const field = screen.getByRole("textbox", { name: "Significado y observaciones" });
+    const field = screen.getByRole("textbox", {
+      name: "Significado y observaciones",
+    });
     await user.type(field, "Inicio de sesión.");
-    await user.click(screen.getByRole("button", { name: "Iniciar dictado por voz" }));
+    await user.click(
+      screen.getByRole("button", { name: "Iniciar dictado por voz" })
+    );
 
     const recognition = MockSpeechRecognition.instances[0]!;
     expect(recognition.lang).toBe("es-AR");
@@ -122,19 +131,66 @@ describe("native voice dictation", () => {
     expect(recognition.interimResults).toBe(true);
     emitFinalTranscript(recognition, "salio el giro fante en el tarot de tot");
 
-    expect(field).toHaveValue(
+    await user.click(
+      screen.getByRole("button", { name: "Detener dictado por voz" })
+    );
+
+    expect(
+      screen.getByRole("textbox", { name: "Significado y observaciones" })
+    ).toHaveValue(
       "Inicio de sesión. Salió El Hierofante en el Tarot de Thoth"
     );
   });
 
+  it("reemplaza el cuadro de texto por ondas reales mientras escucha", async () => {
+    const user = userEvent.setup();
+    render(<DictationField />);
+
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Iniciar dictado por voz" })
+    );
+
+    // El campo desaparece: la superficie de ondas toma su lugar.
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    const surface = screen.getByRole("group", { name: "Dictado en curso" });
+    const bars = surface.querySelectorAll(".voice-live-bar");
+    expect(bars).toHaveLength(VOICE_BAND_COUNT);
+    // Sin audio medido las barras quedan en el piso, no animadas.
+    bars.forEach((bar) => {
+      expect((bar as HTMLElement).style.transform).toBe("scaleY(0.050)");
+    });
+  });
+
+  it("no pierde dos resultados finales que llegan en el mismo evento", async () => {
+    const user = userEvent.setup();
+    const onValue = vi.fn();
+    render(<DictationField onValue={onValue} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Iniciar dictado por voz" })
+    );
+    const recognition = MockSpeechRecognition.instances[0]!;
+
+    act(() => {
+      recognition.onresult?.({
+        resultIndex: 0,
+        results: [
+          { isFinal: true, length: 1, 0: { transcript: "el loco" } },
+          { isFinal: true, length: 1, 0: { transcript: "la torre" } },
+        ],
+      });
+    });
+
+    expect(onValue).toHaveBeenLastCalledWith("El Loco. La torre");
+  });
+
   it("stops a previous field before starting a new recognition session", async () => {
     const user = userEvent.setup();
-    const firstChunk = vi.fn();
-    const secondChunk = vi.fn();
     render(
       <>
-        <VoiceMicButton fieldLabel="pregunta" onTranscript={firstChunk} />
-        <VoiceMicButton fieldLabel="notas" onTranscript={secondChunk} />
+        <DictationField id="field-a" label="pregunta" />
+        <DictationField id="field-b" label="notas" />
       </>
     );
 
@@ -154,12 +210,10 @@ describe("native voice dictation", () => {
   it("arranca en otro campo aunque cerrar la sesión anterior falle", async () => {
     MockSpeechRecognition.failOnStop = true;
     const user = userEvent.setup();
-    const firstChunk = vi.fn();
-    const secondChunk = vi.fn();
     render(
       <>
-        <VoiceMicButton fieldLabel="pregunta" onTranscript={firstChunk} />
-        <VoiceMicButton fieldLabel="notas" onTranscript={secondChunk} />
+        <DictationField id="field-a" label="pregunta" />
+        <DictationField id="field-b" label="notas" />
       </>
     );
 
@@ -177,15 +231,11 @@ describe("native voice dictation", () => {
     expect(
       screen.getAllByRole("button", { name: "Detener dictado por voz" })
     ).toHaveLength(1);
-
-    emitFinalTranscript(secondRecognition, "notas del segundo campo");
-    expect(secondChunk).toHaveBeenCalledWith("Notas del segundo campo");
-    expect(firstChunk).not.toHaveBeenCalled();
   });
 
   it("reinicia el mismo campo si se pulsa de nuevo mientras la sesión cierra", async () => {
     const user = userEvent.setup();
-    render(<VoiceMicButton fieldLabel="pregunta" onTranscript={vi.fn()} />);
+    render(<DictationField label="pregunta" />);
 
     await user.click(
       screen.getByRole("button", { name: "Iniciar dictado por voz" })
@@ -215,13 +265,59 @@ describe("native voice dictation", () => {
     ).toBeInTheDocument();
   });
 
+  it("funciona en pulsaciones repetidas sin recargar la página", async () => {
+    const user = userEvent.setup();
+    const onValue = vi.fn();
+    render(<DictationField onValue={onValue} />);
+
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      await user.click(
+        screen.getByRole("button", { name: "Iniciar dictado por voz" })
+      );
+      const recognition = MockSpeechRecognition.instances[cycle]!;
+      expect(recognition.start).toHaveBeenCalledOnce();
+      emitFinalTranscript(recognition, `chunk numero ${cycle}`);
+      await user.click(
+        screen.getByRole("button", { name: "Detener dictado por voz" })
+      );
+      expect(
+        screen.getByRole("button", { name: "Iniciar dictado por voz" })
+      ).toBeInTheDocument();
+    }
+
+    expect(MockSpeechRecognition.instances).toHaveLength(3);
+    expect(onValue).toHaveBeenCalledTimes(3);
+  });
+
+  it("reabre la escucha si el navegador aborta la sesión sin pedirlo", async () => {
+    const user = userEvent.setup();
+    render(<DictationField label="pregunta" />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Iniciar dictado por voz" })
+    );
+    const firstRecognition = MockSpeechRecognition.instances[0]!;
+
+    act(() => {
+      firstRecognition.onerror?.({ error: "aborted" });
+    });
+
+    await waitFor(() => {
+      expect(MockSpeechRecognition.instances).toHaveLength(2);
+      expect(MockSpeechRecognition.instances[1]!.start).toHaveBeenCalledOnce();
+    });
+    expect(
+      screen.getByRole("button", { name: "Detener dictado por voz" })
+    ).toBeInTheDocument();
+  });
+
   it("espera el fin de la sesión anterior antes de arrancar la nueva", async () => {
     MockSpeechRecognition.deferredEnd = true;
     const user = userEvent.setup();
     render(
       <>
-        <VoiceMicButton fieldLabel="pregunta" onTranscript={vi.fn()} />
-        <VoiceMicButton fieldLabel="notas" onTranscript={vi.fn()} />
+        <DictationField id="field-a" label="pregunta" />
+        <DictationField id="field-b" label="notas" />
       </>
     );
 
@@ -246,7 +342,7 @@ describe("native voice dictation", () => {
 
   it("falls back to the browser language when Spanish Argentina is unsupported", async () => {
     const user = userEvent.setup();
-    render(<VoiceMicButton fieldLabel="pregunta" onTranscript={vi.fn()} />);
+    render(<DictationField label="pregunta" />);
     await user.click(
       screen.getByRole("button", { name: "Iniciar dictado por voz" })
     );
@@ -269,10 +365,10 @@ describe("native voice dictation", () => {
     });
 
     const user = userEvent.setup();
-    const onTranscript = vi.fn();
+    const onValue = vi.fn();
     render(
       <DeviceEnvironmentProvider>
-        <VoiceMicButton fieldLabel="pregunta" onTranscript={onTranscript} />
+        <DictationField label="pregunta" onValue={onValue} />
       </DeviceEnvironmentProvider>
     );
     await user.click(
@@ -290,16 +386,15 @@ describe("native voice dictation", () => {
     });
     const secondRecognition = MockSpeechRecognition.instances[1]!;
     emitFinalTranscript(secondRecognition, "hola");
-    expect(onTranscript).toHaveBeenCalledOnce();
+    expect(onValue).toHaveBeenCalledOnce();
     emitFinalTranscript(secondRecognition, "hola buenos días");
-    expect(onTranscript).toHaveBeenLastCalledWith("Buenos días");
+    expect(onValue).toHaveBeenLastCalledWith("Hola. Buenos días");
 
     await user.click(
       screen.getByRole("button", { name: "Detener dictado por voz" })
     );
     await new Promise((resolve) => window.setTimeout(resolve, 200));
     expect(MockSpeechRecognition.instances).toHaveLength(2);
-
   });
 
   it("keeps iOS recognition continuous", async () => {
@@ -316,7 +411,7 @@ describe("native voice dictation", () => {
     const user = userEvent.setup();
     render(
       <DeviceEnvironmentProvider>
-        <VoiceMicButton fieldLabel="pregunta" onTranscript={vi.fn()} />
+        <DictationField label="pregunta" />
       </DeviceEnvironmentProvider>
     );
     await user.click(

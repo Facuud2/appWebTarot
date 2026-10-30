@@ -190,6 +190,80 @@ interface FakeRecognitionLike {
   abort: () => void;
 }
 
+/**
+ * Instala un micrófono falso con nivel controlable. Sin esto, `getUserMedia`
+ * queda esperando un permiso que el navegador headless nunca resuelve y el
+ * dictado no llega a arrancar.
+ */
+export async function mockMicrophone(page: Page, level = 0) {
+  await page.addInitScript((initialLevel) => {
+    const state = { level: initialLevel };
+    (window as unknown as { __mic: typeof state }).__mic = state;
+
+    const stream = {
+      getTracks: () => [{ stop: () => {} }],
+    };
+
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: async () => stream,
+      },
+    });
+
+    class FakeAnalyser {
+      fftSize = 1024;
+      frequencyBinCount = 512;
+      smoothingTimeConstant = 0;
+      minDecibels = -90;
+      maxDecibels = -10;
+
+      getByteTimeDomainData(target: Uint8Array) {
+        const amplitude = Math.round(state.level * 100);
+        for (let index = 0; index < target.length; index += 1) {
+          target[index] = index % 2 === 0 ? 128 + amplitude : 128 - amplitude;
+        }
+      }
+
+      getByteFrequencyData(target: Uint8Array) {
+        target.fill(Math.round(state.level * 200));
+      }
+
+      connect() {}
+      disconnect() {}
+    }
+
+    class FakeAudioContext {
+      sampleRate = 48000;
+      createAnalyser() {
+        return new FakeAnalyser();
+      }
+      createMediaStreamSource() {
+        return { connect() {}, disconnect() {} };
+      }
+      resume() {
+        return Promise.resolve();
+      }
+      close() {
+        return Promise.resolve();
+      }
+    }
+
+    (window as unknown as Record<string, unknown>).AudioContext =
+      FakeAudioContext;
+    (window as unknown as Record<string, unknown>).webkitAudioContext =
+      FakeAudioContext;
+  }, level);
+}
+
+/** Cambia el nivel que entrega el micrófono falso (0 = silencio, 1 = voz). */
+export async function setMicrophoneLevel(page: Page, level: number) {
+  await page.evaluate((nextLevel) => {
+    const state = (window as unknown as { __mic: { level: number } }).__mic;
+    state.level = nextLevel;
+  }, level);
+}
+
 /** Instala un `SpeechRecognition` falso y helpers para emitir resultados. */
 export async function mockSpeechRecognition(page: Page) {
   await page.addInitScript(() => {
