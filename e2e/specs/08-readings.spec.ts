@@ -130,4 +130,63 @@ test.describe("Lecturas", () => {
     await page.goto("/lecturas");
     await expect(page.getByText(/Borrador E2E/i).first()).toBeVisible();
   });
+
+  test("guarda la estructura personalizada como plantilla del grimorio", async ({
+    page,
+    account,
+  }) => {
+    void account;
+
+    await page.goto("/lecturas/nueva");
+    await expect(
+      page.getByRole("heading", { name: /Paso 1: Configuración y Estructura/i })
+    ).toBeVisible();
+    await page.waitForTimeout(500);
+
+    await page
+      .getByLabel(/Pregunta o tema de la consulta/i)
+      .fill("¿Cómo se ordena la estructura propia?");
+    await page
+      .getByLabel(/Estructura de cartas a utilizar/i)
+      .selectOption("custom");
+    await page
+      .getByLabel(/Nombre de la estructura personalizada/i)
+      .fill("Tirada E2E");
+
+    await clickFooterAction(
+      page,
+      page.getByRole("button", {
+        name: /Siguiente: (Indicar cartas|Cartas)/i,
+      })
+    );
+    await expect(
+      page.getByRole("heading", { name: /Paso 2: Selección de Cartas/i })
+    ).toBeVisible();
+    await pickFirstCard(page);
+
+    await clickFooterAction(
+      page,
+      page.getByRole("button", {
+        name: /Siguiente: (Acomodar cartas|Tapete)/i,
+      })
+    );
+    await page.getByLabel(/Título de la lectura/i).fill("Lectura con tirada E2E");
+    await page.waitForTimeout(400);
+
+    await clickFooterAction(
+      page,
+      page
+        .getByRole("button", {
+          name: /Completar y guardar lectura|Finalizar lectura/i,
+        })
+        .last()
+    );
+    await expect(page).toHaveURL(/\/lecturas\/read-/);
+
+    // La estructura queda disponible en el grimorio como plantilla propia.
+    await page.goto("/grimorio?tab=tiradas");
+    await expect(
+      page.getByRole("heading", { name: "Tirada E2E" })
+    ).toBeVisible();
+  });
 });

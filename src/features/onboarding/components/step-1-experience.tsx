@@ -96,7 +96,7 @@ export function Step1Experience({ value, onChange }: Step1ExperienceProps) {
                         : "border-border bg-ground opacity-40 group-hover:opacity-80"
                     )}
                   >
-                    {isSelected && <Check className="size-3 stroke-[2.5]" />}
+                    {isSelected && <Check className="t-check-mark size-3 stroke-[2.5]" aria-hidden="true" />}
                   </div>
                 </div>
 

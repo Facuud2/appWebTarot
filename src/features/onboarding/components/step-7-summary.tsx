@@ -27,7 +27,7 @@ export function Step7Summary({
   isCompleting,
 }: Step7SummaryProps) {
   return (
-    <div className="space-y-8 t-fade-rise">
+    <div className="space-y-8 t-page-enter">
       {/* Encabezado editorial */}
       <div className="space-y-2 text-center sm:text-left">
         <p className="text-sm font-medium text-accent">
@@ -180,7 +180,12 @@ export function Step7Summary({
           onClick={onComplete}
           className="w-full sm:w-auto px-8 gap-2 font-medium"
         >
-          <span>{isCompleting ? "Ingresando a la mesa…" : "Entrar a mi mesa de tarot"}</span>
+          <span
+            key={isCompleting ? "entering" : "idle"}
+            className="t-text-swap"
+          >
+            {isCompleting ? "Ingresando a la mesa…" : "Entrar a mi mesa de tarot"}
+          </span>
           <ArrowRight className="size-4.5" />
         </Button>
       </div>

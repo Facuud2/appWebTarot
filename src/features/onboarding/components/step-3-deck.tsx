@@ -153,7 +153,7 @@ export function Step3Deck({
                         : "border-border bg-ground opacity-40 group-hover:opacity-80"
                     )}
                   >
-                    {isSelected && <Check className="size-3 stroke-[2.5]" />}
+                    {isSelected && <Check className="t-check-mark size-3 stroke-[2.5]" aria-hidden="true" />}
                   </div>
                 </div>
 
@@ -233,7 +233,7 @@ export function Step3Deck({
               </h3>
               {isExploringMode && (
                 <div className="flex size-4.5 shrink-0 items-center justify-center rounded-full bg-accent text-on-primary">
-                  <Check className="size-3 stroke-[2.5]" />
+                  <Check className="t-check-mark size-3 stroke-[2.5]" aria-hidden="true" />
                 </div>
               )}
             </div>

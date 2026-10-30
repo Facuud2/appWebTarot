@@ -1508,7 +1508,7 @@ export function LiveReadingWorkbench({
                 </div>
 
                 {isRegisteringDeck ? (
-                  <div className="mt-2 space-y-2 rounded-lg border border-accent/40 bg-accent/5 p-3 animate-in fade-in duration-200">
+                  <div className="mt-2 space-y-2 rounded-lg border border-accent/40 bg-accent/5 p-3 t-page-enter">
                     <div className="flex items-center justify-between gap-2">
                       <Label
                         htmlFor="live-quick-deck-name"

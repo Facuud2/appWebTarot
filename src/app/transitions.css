@@ -82,15 +82,15 @@
   --revert-dur: 250ms;
 
   /* Success check */
-  --check-opacity-dur: 400ms;
-  --check-rotate-dur: 450ms;
+  --check-opacity-dur: var(--duration-very-slow);
+  --check-rotate-dur: var(--duration-very-slow);
   --check-rotate-from: 60deg;
-  --check-bob-dur: 400ms;
+  --check-bob-dur: var(--duration-very-slow);
   --check-y-amount: 14px;
-  --check-blur-dur: 400ms;
+  --check-blur-dur: var(--duration-very-slow);
   --check-blur-from: 6px;
-  --check-path-dur: 450ms;
-  --check-path-delay: 80ms;
+  --check-path-dur: var(--duration-very-slow);
+  --check-path-delay: var(--duration-micro);
   --check-ease-bob: cubic-bezier(0.34, 1.35, 0.64, 1);
 
   /* Skeleton loader */
@@ -478,12 +478,12 @@
    8b. TRANSICIÓN DE VISTA ESTILO iOS / iPadOS (.t-slide-forward, .t-slide-backward)
    ============================================================================ */
 .t-slide-forward {
-  animation: t-ios-slide-forward 260ms var(--ease-smooth-out) forwards;
+  animation: t-ios-slide-forward var(--duration-fast) var(--ease-smooth-out) forwards;
   will-change: opacity, transform, filter;
 }
 
 .t-slide-backward {
-  animation: t-ios-slide-backward 260ms var(--ease-smooth-out) forwards;
+  animation: t-ios-slide-backward var(--duration-fast) var(--ease-smooth-out) forwards;
   will-change: opacity, transform, filter;
 }
 
@@ -491,7 +491,7 @@
   0% {
     opacity: 0;
     transform: translateX(36px);
-    filter: blur(var(--blur-small));
+    filter: blur(var(--blur-medium));
   }
   100% {
     opacity: 1;
@@ -504,7 +504,7 @@
   0% {
     opacity: 0;
     transform: translateX(-36px);
-    filter: blur(var(--blur-small));
+    filter: blur(var(--blur-medium));
   }
   100% {
     opacity: 1;
@@ -514,7 +514,137 @@
 }
 
 /* ============================================================================
-   9. ACCESIBILIDAD — PREFERS-REDUCED-MOTION
+   9. PROGRESO POR PASOS (.t-progress-segment)
+   Cada segmento se rellena de izquierda a derecha cuando el paso se completa.
+   El desfase escalonado se controla con --progress-delay desde el componente.
+   ============================================================================ */
+.t-progress-segment {
+  position: relative;
+  overflow: hidden;
+}
+
+.t-progress-segment::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--progress-fill, var(--accent));
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform var(--duration-fast) var(--ease-smooth-out)
+    var(--progress-delay, 0ms);
+  will-change: transform;
+}
+
+.t-progress-segment[data-complete="true"]::after {
+  transform: scaleX(1);
+}
+
+.t-progress-segment[data-tone="amber"] {
+  --progress-fill: #f59e0b;
+}
+
+/* ============================================================================
+   10. PESTAÑAS / PASOS CON PÍLDORA DESLIZANTE (.t-tabs, .t-tabs-pill)
+   JS escribe offsetLeft / offsetWidth del paso activo; el CSS hace el tween.
+   ============================================================================ */
+.t-tabs {
+  position: relative;
+}
+
+.t-tabs-pill {
+  position: absolute;
+  top: 4px;
+  left: 0;
+  height: calc(100% - 8px);
+  width: 0;
+  border-radius: 9999px;
+  background: var(--accent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  transform: translateX(0);
+  transition:
+    transform var(--duration-fast) var(--ease-smooth-out),
+    width var(--duration-fast) var(--ease-smooth-out);
+  will-change: transform, width;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* ============================================================================
+   11. INTERCAMBIO DE ETIQUETA EN BOTONES (.t-text-swap)
+   Evita el salto seco entre «Guardar» y «Guardando…».
+   ============================================================================ */
+.t-text-swap {
+  display: inline-flex;
+  align-items: center;
+  animation: t-text-swap-in var(--duration-quick) var(--ease-in-out) both;
+}
+
+@keyframes t-text-swap-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--distance-micro));
+    filter: blur(var(--blur-small));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+/* ============================================================================
+   12. MARCA DE VERIFICACIÓN AL SELECCIONAR (.t-check-mark)
+   Dibuja el trazo del check después de que el control cambia de estado.
+   ============================================================================ */
+.t-check-mark {
+  animation: t-check-mark-in var(--duration-fast) var(--ease-bounce) both;
+}
+
+.t-check-mark path {
+  stroke-dasharray: 18;
+  animation: t-check-mark-draw var(--duration-medium) var(--ease-smooth-out)
+    40ms both;
+}
+
+@keyframes t-check-mark-in {
+  from {
+    opacity: 0;
+    transform: scale(0.45);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes t-check-mark-draw {
+  from {
+    stroke-dashoffset: 18;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ============================================================================
+   13. MOMENTO DE ÉXITO DE UN PROCEDIMIENTO (.t-success-overlay)
+   ============================================================================ */
+.t-success-overlay {
+  animation: t-success-fade-in var(--duration-fast) var(--ease-smooth-out) both;
+}
+
+@keyframes t-success-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* ============================================================================
+   14. ACCESIBILIDAD — PREFERS-REDUCED-MOTION
    ============================================================================ */
 @media (prefers-reduced-motion: reduce) {
   .t-modal,
@@ -528,10 +658,20 @@
   .t-skel::after,
   .t-page-enter,
   .t-slide-forward,
-  .t-slide-backward {
+  .t-slide-backward,
+  .t-text-swap,
+  .t-check-mark,
+  .t-check-mark path,
+  .t-success-overlay {
     animation: none !important;
     transition: none !important;
     transform: none !important;
     filter: none !important;
+  }
+
+  /* El relleno y la píldora conservan su estado; solo se apaga el tween. */
+  .t-progress-segment::after,
+  .t-tabs-pill {
+    transition: none !important;
   }
 }

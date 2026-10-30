@@ -538,7 +538,7 @@ export function SpreadMap({
               {isSelected ? (
                 <span
                   aria-hidden="true"
-                  className="pointer-events-none absolute -top-2 left-1/2 -translate-x-1/2 z-30 flex items-center justify-center rounded-full bg-accent px-1.5 py-0.5 text-[8px] font-semibold text-on-primary shadow-xs tracking-wider uppercase animate-in fade-in zoom-in-95 duration-150"
+                  className="pointer-events-none absolute -top-2 left-1/2 -translate-x-1/2 z-30 flex items-center justify-center rounded-full bg-accent px-1.5 py-0.5 text-[8px] font-semibold text-on-primary shadow-xs tracking-wider uppercase t-page-enter"
                 >
                   Activa
                 </span>

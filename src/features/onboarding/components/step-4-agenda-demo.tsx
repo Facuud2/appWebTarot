@@ -334,7 +334,7 @@ export function Step4AgendaDemo({
                   en «Iniciar lectura» para abrir la mesa de tirada con los datos ya vinculados.
                 </p>
                 <div className="flex items-center gap-2 text-xs text-positive font-medium pt-1">
-                  <Check className="size-4 stroke-[2.5]" />
+                  <Check className="t-check-mark size-4 stroke-[2.5]" aria-hidden="true" />
                   <span>Cita visible en la cronología de hoy y próximas fechas</span>
                 </div>
               </div>
@@ -366,7 +366,7 @@ export function Step4AgendaDemo({
 
                   {createdAppointmentId && (
                     <Badge variant="positive" className="self-start sm:self-auto gap-1">
-                      <Check className="size-3" />
+                      <Check className="t-check-mark size-3" aria-hidden="true" />
                       <span>Cita real registrada</span>
                     </Badge>
                   )}

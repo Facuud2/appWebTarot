@@ -166,8 +166,8 @@ Playwright no puede reproducir todo el hardware real:
 
 | Corrida | Proyectos | Tests | Tiempo |
 | ------- | --------- | ----- | ------ |
-| Tier 1 (`npm run test:e2e`) | 7 | ~235 | ~5 min |
-| Matriz completa (`npm run test:e2e:full`) | 13 | ~481 | ~10–13 min |
+| Tier 1 (`npm run test:e2e`) | 7 | ~275 | ~6 min |
+| Matriz completa (`npm run test:e2e:full`) | 13 | ~510 | ~11–14 min |
 
 Los tiempos son con 2 workers en una máquina de desarrollo; el primer arranque
 incluye `next start` sobre un build ya hecho.

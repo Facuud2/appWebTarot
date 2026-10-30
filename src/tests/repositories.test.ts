@@ -242,6 +242,120 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     expect(storedDeck?.userId).toBe(user.id);
   });
 
+  it("guarda la estructura personalizada de una lectura como plantilla reutilizable", async () => {
+    const db = createDatabaseInstance(":memory:", { seedDemo: false });
+    const user = await registerNewUser(
+      {
+        name: "Estructuras propias",
+        workspaceName: "Mesa de tiradas",
+        email: "tiradas@test.org",
+        password: "clave-segura-tiradas",
+      },
+      db
+    );
+    const decks = await listAvailableDecks(user.id, db);
+    const defaultDeck = decks.find((deck) => deck.isDefault)!;
+
+    const positions = [
+      { positionIndex: 1, title: "Origen", prompt: "", coordX: 30, coordY: 50 },
+      { positionIndex: 2, title: "Nudo", prompt: "", coordX: 50, coordY: 50 },
+      { positionIndex: 3, title: "Desenlace", prompt: "", coordX: 70, coordY: 50 },
+    ];
+
+    const reading = await createReadingDraft(
+      user.id,
+      {
+        title: "Lectura con estructura propia",
+        consultantId: "",
+        appointmentId: "",
+        deckIds: [defaultDeck.id],
+        quickNewDecks: [],
+        quickNewConsultant: "",
+        spreadMode: "custom",
+        spreadTemplateId: "",
+        spreadName: "Tirada del taller",
+        customPositions: positions,
+        questionIntention: "",
+        sessionContext: "",
+        performedAt: "2026-11-01T00:30:00.000Z",
+      },
+      db
+    );
+
+    const ownSpreads = (await listSpreadTemplates(user.id, db)).filter(
+      (spread) => !spread.isBuiltin
+    );
+    expect(ownSpreads).toHaveLength(1);
+    expect(ownSpreads[0]!.name).toBe("Tirada del taller");
+    expect(ownSpreads[0]!.positions.map((position) => position.title)).toEqual([
+      "Origen",
+      "Nudo",
+      "Desenlace",
+    ]);
+    expect(reading.spreadTemplateId).toBe(ownSpreads[0]!.id);
+
+    // Guardar la lectura otra vez reutiliza la misma estructura.
+    const saved = await updateReadingSession(
+      user.id,
+      {
+        readingId: reading.id,
+        title: "Lectura con estructura propia",
+        consultantId: "",
+        deckIds: reading.deckIds,
+        spreadTemplateId: "",
+        spreadName: "Tirada del taller",
+        customPositions: positions,
+        questionIntention: "",
+        sessionContext: "",
+        status: "completed",
+        performedAt: "2026-11-01T00:30:00.000Z",
+        generalObservations: "",
+        sessionSynthesis: "",
+        closingReflections: "",
+        tags: [],
+        cards: [],
+      },
+      db
+    );
+    expect(saved.spreadTemplateId).toBe(ownSpreads[0]!.id);
+    expect(
+      (await listSpreadTemplates(user.id, db)).filter((spread) => !spread.isBuiltin)
+    ).toHaveLength(1);
+
+    // Una estructura con otras posiciones crea su propia plantilla.
+    await createReadingDraft(
+      user.id,
+      {
+        title: "Lectura con estructura distinta",
+        consultantId: "",
+        appointmentId: "",
+        deckIds: [defaultDeck.id],
+        quickNewDecks: [],
+        quickNewConsultant: "",
+        spreadMode: "custom",
+        spreadTemplateId: "",
+        spreadName: "Tirada del taller",
+        customPositions: [
+          ...positions,
+          {
+            positionIndex: 4,
+            title: "Consejo",
+            prompt: "",
+            coordX: 50,
+            coordY: 75,
+          },
+        ],
+        questionIntention: "",
+        sessionContext: "",
+        performedAt: "2026-11-02T00:30:00.000Z",
+      },
+      db
+    );
+    expect(
+      (await listSpreadTemplates(user.id, db)).filter((spread) => !spread.isBuiltin)
+    ).toHaveLength(2);
+  });
+
   it("enforces strict user isolation between private accounts and demo data", async () => {
     const db = createDatabaseInstance(":memory:", { seedDemo: true });
     const privateUser = await registerNewUser(

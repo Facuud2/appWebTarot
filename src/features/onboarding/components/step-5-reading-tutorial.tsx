@@ -433,7 +433,7 @@ export function Step5ReadingTutorial({
                     )}
                   >
                     {localTargetType === "for_me" && (
-                      <Check className="size-3 stroke-[2.5]" />
+                      <Check className="t-check-mark size-3 stroke-[2.5]" aria-hidden="true" />
                     )}
                   </div>
                 </div>
@@ -488,7 +488,7 @@ export function Step5ReadingTutorial({
                     )}
                   >
                     {localTargetType === "no_consultant" && (
-                      <Check className="size-3 stroke-[2.5]" />
+                      <Check className="t-check-mark size-3 stroke-[2.5]" aria-hidden="true" />
                     )}
                   </div>
                 </div>
@@ -548,7 +548,7 @@ export function Step5ReadingTutorial({
                         )}
                       >
                         {isSelected && (
-                          <Check className="size-3 stroke-[2.5]" />
+                          <Check className="t-check-mark size-3 stroke-[2.5]" aria-hidden="true" />
                         )}
                       </div>
                     </div>

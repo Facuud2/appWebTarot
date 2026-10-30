@@ -214,7 +214,7 @@ export function DeckEventSheet({
           </div>
 
           {selectedPhenomenon === "other" ? (
-            <div className="space-y-1.5 animate-in fade-in-50">
+            <div className="space-y-1.5 t-page-enter">
               <Label htmlFor="event-custom-label">
                 Nombre breve del evento
               </Label>

@@ -298,13 +298,21 @@ export function OnboardingWizard({
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted hidden sm:inline">
               Paso {onboardingState.currentStep} de {TOTAL_STEPS} ·{" "}
-              <span className="text-ink font-medium">
+              <span
+                key={onboardingState.currentStep}
+                className="t-text-swap text-ink font-medium"
+              >
                 {STEP_TITLES[onboardingState.currentStep - 1]}
               </span>
             </span>
 
-            <span className="text-xs text-muted sm:hidden">
-              {onboardingState.currentStep}/{TOTAL_STEPS}
+            <span className="sm:hidden">
+              <span
+                key={`mobile-${onboardingState.currentStep}`}
+                className="t-text-swap text-xs text-muted"
+              >
+                {onboardingState.currentStep}/{TOTAL_STEPS}
+              </span>
             </span>
 
             {isReviewMode && (
@@ -328,15 +336,16 @@ export function OnboardingWizard({
         <div className="mx-auto max-w-4xl pt-2 space-y-2">
           <div className="grid grid-cols-7 gap-1 h-1">
             {Array.from({ length: TOTAL_STEPS }, (_, index) => index + 1).map(
-              (s) => (
+              (s, index) => (
                 <div
                   key={s}
-                  className={cn(
-                    "rounded-full transition-colors duration-300",
-                    s <= onboardingState.currentStep
-                      ? "bg-accent"
-                      : "bg-surface-raised border border-border/50"
-                  )}
+                  data-complete={s <= onboardingState.currentStep}
+                  style={
+                    {
+                      "--progress-delay": `${Math.min(index, 6) * 40}ms`,
+                    } as React.CSSProperties
+                  }
+                  className="t-progress-segment rounded-full bg-surface-raised border border-border/50"
                 />
               )
             )}
@@ -344,7 +353,7 @@ export function OnboardingWizard({
 
           {/* Sub barra de otro color para las 5 etapas del paso 4 */}
           {onboardingState.currentStep === 4 && (
-            <div className="pt-1 flex flex-col gap-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="pt-1 flex flex-col gap-1.5 t-page-enter">
               <div className="flex items-center justify-between text-[11px]">
                 <div className="flex items-center gap-1.5 text-amber-500 dark:text-amber-400 font-medium">
                   <span className="size-1.5 rounded-full bg-amber-500 dark:bg-amber-400" />
@@ -371,14 +380,16 @@ export function OnboardingWizard({
                   <button
                     key={st}
                     type="button"
+                    data-complete={st <= agendaDemoStep}
+                    data-tone="amber"
+                    style={
+                      {
+                        "--progress-delay": `${(st - 1) * 50}ms`,
+                      } as React.CSSProperties
+                    }
                     onClick={() => handleAgendaSubStepChange(st)}
                     title={`Etapa ${st}: ${AGENDA_DEMO_STAGES[st - 1]?.label}`}
-                    className={cn(
-                      "h-1.5 rounded-full transition-colors duration-300 outline-none focus-visible:ring-1 focus-visible:ring-amber-500 cursor-pointer",
-                      st <= agendaDemoStep
-                        ? "bg-amber-500 dark:bg-amber-400"
-                        : "bg-surface-raised border border-border/40 hover:bg-border"
-                    )}
+                    className="t-progress-segment h-1.5 rounded-full bg-surface-raised border border-border/40 hover:bg-border outline-none focus-visible:ring-1 focus-visible:ring-amber-500 cursor-pointer"
                   />
                 ))}
               </div>

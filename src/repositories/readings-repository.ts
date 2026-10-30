@@ -129,6 +129,89 @@ function parsePositionsJson(
   }
 }
 
+function positionsMatch(
+  a: SpreadPositionDefinition[],
+  b: SpreadPositionDefinition[]
+): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((position, index) => {
+    const other = b[index];
+    return (
+      other !== undefined &&
+      position.positionIndex === other.positionIndex &&
+      position.title === other.title &&
+      position.prompt === other.prompt &&
+      Math.abs(position.coordX - other.coordX) < 0.01 &&
+      Math.abs(position.coordY - other.coordY) < 0.01
+    );
+  });
+}
+
+/**
+ * Registra la estructura personalizada de una lectura como plantilla
+ * reutilizable, igual que las cartas y los mazos creados al vuelo. Si ya
+ * existe una estructura del usuario con las mismas posiciones se reutiliza
+ * (y se renombra si hace falta) para no llenar el grimorio de duplicados.
+ */
+async function ensureCustomSpreadTemplate(
+  userId: string,
+  rawName: string,
+  positions: SpreadPositionDefinition[],
+  db: AppDatabase
+): Promise<string | null> {
+  if (positions.length === 0) return null;
+
+  const requestedName = rawName.trim();
+  const fallbackName = `Personalizada · ${positions.length} ${
+    positions.length === 1 ? "carta" : "cartas"
+  }`;
+  const name = requestedName.length >= 2 ? requestedName : fallbackName;
+
+  const rows = (await db
+    .prepare(
+      `SELECT id, name, positions_json FROM spread_templates
+       WHERE user_id = ? AND is_builtin = 0
+       ORDER BY created_at ASC`
+    )
+    .all(userId)) as Array<{
+    id: string;
+    name: string;
+    positions_json: string;
+  }>;
+
+  const existing = rows.find((row) =>
+    positionsMatch(parsePositionsJson(row.positions_json), positions)
+  );
+
+  if (existing) {
+    if (requestedName.length >= 2 && existing.name !== name) {
+      await db
+        .prepare("UPDATE spread_templates SET name = ? WHERE id = ? AND user_id = ?")
+        .run(name, existing.id, userId);
+    }
+    return existing.id;
+  }
+
+  const id = `spread-${randomUUID()}`;
+  await db
+    .prepare(
+      `INSERT INTO spread_templates (
+        id, user_id, name, category, description, positions_json, is_builtin, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 0, ?)`
+    )
+    .run(
+      id,
+      userId,
+      name,
+      "Personalizada",
+      "Estructura guardada automáticamente desde una lectura.",
+      JSON.stringify(positions),
+      new Date().toISOString()
+    );
+  return id;
+}
+
+
 interface ReadingSummaryRow {
   id: string;
   user_id: string;
@@ -629,6 +712,17 @@ export async function createReadingDraft(
       createdQuickIds.push(createdDeck.id);
     }
 
+    // Una estructura personalizada se guarda como plantilla reutilizable en
+    // cuanto se usa, igual que las cartas y los mazos creados al vuelo.
+    if (values.spreadMode === "custom") {
+      spreadTemplateId = await ensureCustomSpreadTemplate(
+        userId,
+        resolvedSpreadName,
+        resolvedCustomPositions,
+        db
+      );
+    }
+
     const allDeckIds = Array.from(
       new Set([...selectedExistingDeckIds, ...createdQuickIds])
     );
@@ -703,7 +797,7 @@ export async function updateReadingSession(
     db
   );
   const primaryDeckId = allDeckIds[0] ?? null;
-  const spreadTemplateId = values.spreadTemplateId.trim() || null;
+  let spreadTemplateId = values.spreadTemplateId.trim() || null;
   const normalizedPositions: SpreadPositionDefinition[] =
     values.customPositions.map((p, idx) => ({
       positionIndex: idx + 1,
@@ -715,6 +809,16 @@ export async function updateReadingSession(
 
   await db.exec("BEGIN");
   try {
+    // Lectura con estructura propia: se guarda como plantilla reutilizable.
+    if (!spreadTemplateId && normalizedPositions.length > 0) {
+      spreadTemplateId = await ensureCustomSpreadTemplate(
+        userId,
+        values.spreadName.trim(),
+        normalizedPositions,
+        db
+      );
+    }
+
     await db.prepare(
       `UPDATE readings
        SET consultant_id = ?,

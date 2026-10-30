@@ -118,7 +118,7 @@ export function Step2Purposes({
                     : "border-border bg-ground group-hover:border-border-hover"
                 )}
               >
-                {isSelected && <Check className="size-3.5 stroke-[2.5]" />}
+                {isSelected && <Check className="t-check-mark size-3.5 stroke-[2.5]" aria-hidden="true" />}
               </div>
 
               <div className="space-y-1 min-w-0">

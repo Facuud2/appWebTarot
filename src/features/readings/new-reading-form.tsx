@@ -252,6 +252,14 @@ export function NewReadingForm({
 
   // Wizard Step: 1 = Configuración, 2 = Cartas y Notas, 3 = Acomodar Mesa
   const [currentStep, setCurrentStep] = React.useState<1 | 2 | 3>(1);
+  const [stepDirection, setStepDirection] = React.useState<
+    "forward" | "backward"
+  >("forward");
+  const [isCompletingSuccess, setIsCompletingSuccess] =
+    React.useState(false);
+  const stepperRef = React.useRef<HTMLDivElement | null>(null);
+  const stepperPillRef = React.useRef<HTMLSpanElement | null>(null);
+  const stepperPlacedRef = React.useRef(false);
 
   // Dynamic reactive card catalog (including newly registered custom cards)
   const [cardsCatalog, setCardsCatalog] =
@@ -600,6 +608,7 @@ export function NewReadingForm({
       prepareCardSlots();
     }
 
+    setStepDirection(targetStep > currentStep ? "forward" : "backward");
     setCurrentStep(targetStep);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -1033,6 +1042,40 @@ export function NewReadingForm({
     }
   }, [currentStep]);
 
+  // Píldora deslizante del stepper: el CSS hace el tween, acá se mide el paso
+  // activo. El primer pintado y los cambios de viewport se colocan sin
+  // animación para que la píldora no "vuele" desde el origen.
+  React.useEffect(() => {
+    const bar = stepperRef.current;
+    const pill = stepperPillRef.current;
+    if (!bar || !pill) return;
+
+    const place = (animate: boolean) => {
+      const active = bar.querySelector<HTMLElement>('[data-step-active="true"]');
+      if (!active) return;
+      const x = active.offsetLeft - bar.clientLeft;
+      const width = active.offsetWidth;
+      if (!animate) {
+        pill.style.transition = "none";
+        pill.style.transform = `translateX(${x}px)`;
+        pill.style.width = `${width}px`;
+        void pill.offsetWidth;
+        pill.style.transition = "";
+        return;
+      }
+      pill.style.transform = `translateX(${x}px)`;
+      pill.style.width = `${width}px`;
+    };
+
+    place(stepperPlacedRef.current);
+    stepperPlacedRef.current = true;
+
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => place(false));
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, [currentStep]);
+
   // Final Submit: Save & Complete Reading
   const handleCompleteAndSave = () => {
     startTransition(async () => {
@@ -1164,8 +1207,12 @@ export function NewReadingForm({
 
         setIsDirty(false);
         toast.success("¡Lectura completada y guardada con éxito!");
-        router.push(`/lecturas/${readingId}`);
-        router.refresh();
+        setIsCompletingSuccess(true);
+        // Pausa breve para que el check de éxito se dibuje antes de navegar.
+        window.setTimeout(() => {
+          router.push(`/lecturas/${readingId}`);
+          router.refresh();
+        }, 700);
       } catch (err) {
         console.error(err);
         toast.error("Ocurrió un error inesperado al guardar la lectura.");
@@ -1211,10 +1258,16 @@ export function NewReadingForm({
         {/* 3-Step Stepper Bar with CLICKABLE Pill Buttons */}
         <div className="flex flex-wrap sm:flex-nowrap items-center gap-1.5 sm:gap-2 self-start sm:self-auto max-w-full">
           <div
+            ref={stepperRef}
             role="group"
             aria-label="Progreso de la lectura"
-            className="inline-flex items-center gap-0.5 sm:gap-1 rounded-full border border-border bg-surface p-1 shadow-xs select-none"
+            className="t-tabs inline-flex items-center gap-0.5 sm:gap-1 rounded-full border border-border bg-surface p-1 shadow-xs select-none"
           >
+            <span
+              ref={stepperPillRef}
+              aria-hidden="true"
+              className="t-tabs-pill"
+            />
             {[
               { id: 1, label: "1. Estructura", title: "Configuración y estructura" },
               { id: 2, label: "2. Cartas", title: "Selección de cartas y notas" },
@@ -1226,20 +1279,23 @@ export function NewReadingForm({
                 <button
                   key={step.id}
                   type="button"
+                  data-step-active={isActive}
+                  aria-current={isActive ? "step" : undefined}
+                  aria-label={`Paso ${step.id}: ${step.title}`}
                   onClick={() => handleNavigateStep(step.id as 1 | 2 | 3)}
                   title={step.title}
                   className={cn(
-                    "flex items-center gap-1 sm:gap-1.5 rounded-full px-2 sm:px-3 py-1 text-xs font-medium transition-[color,background-color,transform] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                    "relative z-10 flex items-center gap-1 sm:gap-1.5 rounded-full px-2 sm:px-3 py-1 text-xs font-medium transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                     isActive
-                      ? "bg-accent text-on-primary font-semibold shadow-xs"
+                      ? "text-on-primary font-semibold"
                       : isCompleted
-                        ? "text-ink bg-surface-raised hover:bg-surface-raised/80 font-medium"
-                        : "text-muted hover:text-ink hover:bg-surface-raised/50"
+                        ? "text-ink font-medium"
+                        : "text-muted hover:text-ink"
                   )}
                 >
                   <span
                     className={cn(
-                      "flex size-4.5 items-center justify-center rounded-full text-[10px]",
+                      "flex size-4.5 items-center justify-center rounded-full text-[10px] transition-colors",
                       isActive
                         ? "bg-ground text-ink"
                         : isCompleted
@@ -1267,7 +1323,12 @@ export function NewReadingForm({
           >
             <Bookmark className="size-3.5" aria-hidden="true" />
             <span className="hidden sm:inline">
-              {isSavingDraft ? "Guardando..." : "Guardar borrador"}
+              <span
+                key={isSavingDraft ? "saving" : "idle"}
+                className="t-text-swap"
+              >
+                {isSavingDraft ? "Guardando..." : "Guardar borrador"}
+              </span>
             </span>
             <span className="sm:hidden">Borrador</span>
           </Button>
@@ -1320,6 +1381,13 @@ export function NewReadingForm({
         </div>
       ) : null}
 
+      <div
+        key={currentStep}
+        className={cn(
+          "w-full",
+          stepDirection === "forward" ? "t-slide-forward" : "t-slide-backward"
+        )}
+      >
       {/* ========================================================================= */}
       {/* PASO 1: Configuración, Mazos, Pregunta, Notas & Estructura                 */}
       {/* ========================================================================= */}
@@ -1378,7 +1446,7 @@ export function NewReadingForm({
                 </select>
 
                 {isRegisteringNewConsultant ? (
-                  <div className="mt-2 space-y-2 rounded-lg border border-accent/40 bg-accent/5 p-3 animate-in fade-in duration-200">
+                  <div className="mt-2 space-y-2 rounded-lg border border-accent/40 bg-accent/5 p-3 t-page-enter">
                     <div className="flex items-center justify-between gap-2">
                       <Label
                         htmlFor="quick-new-consultant-name"
@@ -1575,7 +1643,7 @@ export function NewReadingForm({
               </div>
 
               {spreadMode === "custom" ? (
-                <div className="space-y-4 rounded-xl border border-accent/30 bg-accent/5 p-4 animate-in fade-in duration-200">
+                <div className="space-y-4 rounded-xl border border-accent/30 bg-accent/5 p-4 t-page-enter">
                   <div className="space-y-1.5">
                     <Label htmlFor="step1-custom-spread-name">
                       Nombre de la estructura personalizada{" "}
@@ -1757,7 +1825,9 @@ export function NewReadingForm({
                   className="flex items-center gap-1.5 border-border min-w-0"
                 >
                   <Bookmark className="size-4 shrink-0" aria-hidden="true" />
-                  <span>{isSavingDraft ? "Guardando…" : "Guardar borrador"}</span>
+                  <span key={isSavingDraft ? "saving" : "idle"} className="t-text-swap">
+                  {isSavingDraft ? "Guardando…" : "Guardar borrador"}
+                </span>
                 </Button>
                 <Button
                   type="button"
@@ -2090,7 +2160,7 @@ export function NewReadingForm({
                     </button>
 
                     {isNotesExpanded ? (
-                      <div className="mt-3 space-y-3 rounded-lg border border-border bg-ground p-3.5 animate-in fade-in duration-200">
+                      <div className="mt-3 space-y-3 rounded-lg border border-border bg-ground p-3.5 t-page-enter">
                         <div className="space-y-1">
                           <div className="flex items-center justify-between gap-2">
                             <Label
@@ -2224,7 +2294,9 @@ export function NewReadingForm({
                   className="flex items-center gap-1.5 border-border min-w-0"
                 >
                   <Bookmark className="size-4 shrink-0" aria-hidden="true" />
-                  <span>{isSavingDraft ? "Guardando…" : "Guardar borrador"}</span>
+                  <span key={isSavingDraft ? "saving" : "idle"} className="t-text-swap">
+                  {isSavingDraft ? "Guardando…" : "Guardar borrador"}
+                </span>
                 </Button>
                 <Button
                   type="button"
@@ -2412,7 +2484,9 @@ export function NewReadingForm({
                 className="flex items-center gap-1.5 border-border min-w-0"
               >
                 <Bookmark className="size-4 shrink-0" aria-hidden="true" />
-                <span>{isSavingDraft ? "Guardando…" : "Guardar borrador"}</span>
+                <span key={isSavingDraft ? "saving" : "idle"} className="t-text-swap">
+                  {isSavingDraft ? "Guardando…" : "Guardar borrador"}
+                </span>
               </Button>
 
               <Button
@@ -2424,7 +2498,10 @@ export function NewReadingForm({
                 className="min-w-0 font-medium"
               >
                 <Sparkles className="size-4 shrink-0 mr-1" aria-hidden="true" />
-                <span>
+                <span
+                  key={isPending ? "saving" : "idle"}
+                  className="t-text-swap"
+                >
                   {isPending
                     ? "Guardando lectura…"
                     : (
@@ -2439,6 +2516,28 @@ export function NewReadingForm({
           </div>
         </div>
       )}
+      </div>
+
+      {/* Momento de éxito al completar el procedimiento de lectura */}
+      {isCompletingSuccess ? (
+        <div
+          className="t-success-overlay fixed inset-0 z-[60] flex items-center justify-center bg-ground/70 p-6 backdrop-blur-sm"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-ground px-8 py-7 text-center shadow-xl">
+            <span
+              className="t-success-check flex size-12 items-center justify-center rounded-full bg-accent/10 text-accent"
+              data-state="in"
+              aria-hidden="true"
+            >
+              <Check className="size-6" strokeWidth={2.4} />
+            </span>
+            <p className="font-serif text-lg text-ink">Lectura guardada</p>
+            <p className="text-xs text-muted">Abriendo el registro completo…</p>
+          </div>
+        </div>
+      ) : null}
 
       {/* ========================================================================= */}
       {/* DIALOG: Registrar Nueva Carta en Mazo Personalizado (Reactivo)            */}

@@ -100,4 +100,50 @@ test.describe("Dictado por voz @device", () => {
       page.getByRole("button", { name: /Iniciar dictado por voz/i }).first()
     ).toBeVisible();
   });
+
+  test("cambia de campo y sigue dictando en el nuevo", async ({
+    page,
+    account,
+  }) => {
+    void account;
+    await mockSpeechRecognition(page);
+    await openStepOne(page);
+
+    const question = page.getByLabel(/Pregunta o tema de la consulta/i);
+    const context = page.getByLabel(/Notas previas \/ Contexto/i);
+
+    await page
+      .getByRole("button", { name: /Iniciar dictado por voz/i })
+      .first()
+      .click();
+    await emitSpeech(page, "el loco");
+    await expect(question).toHaveValue(/El Loco/);
+
+    // Cambia de campo sin detener el dictado: la segunda sesión toma el relevo
+    // y sólo queda un micrófono activo.
+    await page
+      .getByRole("button", { name: /dictado por voz/i })
+      .nth(1)
+      .click();
+    await expect(
+      page.getByRole("button", { name: /Detener dictado por voz/i })
+    ).toHaveCount(1);
+
+    await emitSpeech(page, "la emperatriz");
+    await expect(context).toHaveValue(/La Emperatriz/);
+    // El texto del primer campo no se contamina.
+    await expect(question).toHaveValue(/El Loco/);
+
+    // Detener y volver a empezar en el primer campo también funciona.
+    await page
+      .getByRole("button", { name: /Detener dictado por voz/i })
+      .first()
+      .click();
+    await page
+      .getByRole("button", { name: /Iniciar dictado por voz/i })
+      .first()
+      .click();
+    await emitSpeech(page, "el sol");
+    await expect(question).toHaveValue(/El Loco.*el sol/i);
+  });
 });
