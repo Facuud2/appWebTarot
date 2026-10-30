@@ -56,20 +56,83 @@ export function CardCombobox({
   const [quickFilter, setQuickFilter] = React.useState<CardQuickFilter>("all");
   const [searchQuery, setSearchQuery] = React.useState("");
   const triggerButtonRef = React.useRef<HTMLButtonElement>(null);
+  const contentRef = React.useRef<HTMLDivElement>(null);
   const listboxId = React.useId();
 
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen);
     if (nextOpen) {
       setSearchQuery("");
-      setTimeout(() => {
-        triggerButtonRef.current?.closest(".rounded-xl")?.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        });
-      }, 60);
+      // En móvil el teclado cambia el viewport visual. Desplazar la página
+      // justo al abrir movía el popover fuera de la zona visible, así que allí
+      // la posición la gobierna el efecto de `visualViewport`.
+      if (!profile.isMobileOrTablet) {
+        setTimeout(() => {
+          triggerButtonRef.current?.closest(".rounded-xl")?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        }, 60);
+      }
     }
   };
+
+  /**
+   * Mantiene el selector dentro del viewport visual mientras el teclado se
+   * abre o la página se desplaza. En iOS `position: fixed` se ancla al layout
+   * viewport, por eso hay que sumar `offsetTop`/`offsetLeft` del viewport
+   * visual y recalcular en cada cambio.
+   */
+  React.useEffect(() => {
+    if (!open || !profile.isMobileOrTablet) return undefined;
+
+    const viewport = window.visualViewport;
+    let frame = 0;
+
+    const reposition = () => {
+      const wrapper = contentRef.current?.parentElement;
+      if (!wrapper) return;
+      const vv = window.visualViewport;
+      const offsetTop = vv?.offsetTop ?? 0;
+      const offsetLeft = vv?.offsetLeft ?? 0;
+      const viewportWidth = vv?.width ?? window.innerWidth;
+      const viewportHeight = vv?.height ?? window.innerHeight;
+      const width = Math.min(420, viewportWidth - 24);
+      const height = wrapper.getBoundingClientRect().height;
+      const top =
+        offsetTop + Math.max(12, Math.round((viewportHeight - height) / 2));
+
+      wrapper.style.setProperty("position", "fixed", "important");
+      wrapper.style.setProperty("top", `${top}px`, "important");
+      wrapper.style.setProperty("left", `${offsetLeft + 12}px`, "important");
+      wrapper.style.setProperty("right", "auto", "important");
+      wrapper.style.setProperty("width", `${width}px`, "important");
+      wrapper.style.setProperty("max-width", `${width}px`, "important");
+      wrapper.style.setProperty("transform", "none", "important");
+      wrapper.style.setProperty("z-index", "51", "important");
+    };
+
+    const scheduleReposition = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        reposition();
+      });
+    };
+
+    reposition();
+    scheduleReposition();
+    viewport?.addEventListener("resize", scheduleReposition);
+    viewport?.addEventListener("scroll", scheduleReposition);
+    window.addEventListener("resize", scheduleReposition);
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      viewport?.removeEventListener("resize", scheduleReposition);
+      viewport?.removeEventListener("scroll", scheduleReposition);
+      window.removeEventListener("resize", scheduleReposition);
+    };
+  }, [open, profile.isMobileOrTablet]);
 
   const selectedCard = React.useMemo(
     () => cards.find((c) => c.id === value) ?? null,
@@ -273,6 +336,7 @@ export function CardCombobox({
           </button>
         </PopoverTrigger>
         <PopoverContent
+          ref={contentRef}
           className="card-picker-mobile-content max-h-[calc(var(--vvh,100dvh)-5.5rem)] w-[min(420px,calc(100vw-2rem))] overflow-hidden bg-ground p-0"
           style={{
             maxHeight: profile.isMobileOrTablet

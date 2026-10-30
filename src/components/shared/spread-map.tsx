@@ -6,7 +6,6 @@ import {
   GripHorizontal,
   Hand,
   Maximize2,
-  Minimize2,
   Minus,
   Plus,
   Zap,
@@ -61,8 +60,11 @@ interface SpreadMapProps {
 
 const MIN_PANEL_HEIGHT = 220;
 const MAX_PANEL_HEIGHT = 640;
-const RESIZE_STEP = 70;
-const EXPANDED_HEIGHT = 520;
+// Los botones +/− y «Ajustar» escalan las cartas, no el alto del panel. El alto
+// sigue dependiendo solo del asa inferior.
+const MIN_CARD_ZOOM = 0.65;
+const MAX_CARD_ZOOM = 1.6;
+const CARD_ZOOM_STEP = 0.15;
 
 /**
  * Perímetro de seguridad anti edge-swipe.
@@ -74,9 +76,9 @@ const EXPANDED_HEIGHT = 520;
  */
 const EDGE_SAFE_MARGIN = 20;
 const CARD_WIDTH_BY_HEIGHT = {
-  compact: 72,
-  regular: 78,
-  expanded: 84,
+  compact: 62,
+  regular: 68,
+  expanded: 74,
 } as const;
 
 function clamp(val: number, min: number, max: number): number {
@@ -115,7 +117,9 @@ export function buildSpreadSlots(
     const cardEntry = cards.find((c) => c.positionIndex === idx);
     const tpl = templatePositions?.find((p) => p.positionIndex === idx);
 
-    const fallbackCols = Math.min(count, 5);
+    // Las cartas pueden reducirse con el zoom, así que la rejilla de respaldo
+    // admite más columnas antes de saltar de fila.
+    const fallbackCols = Math.min(count, 6);
     const row = Math.floor(i / fallbackCols);
     const col = i % fallbackCols;
     const totalRows = Math.ceil(count / fallbackCols);
@@ -161,6 +165,7 @@ export function SpreadMap({
   const [panelHeight, setPanelHeight] = React.useState<number>(
     computedDefaultHeight
   );
+  const [cardZoom, setCardZoom] = React.useState(1);
   const [mobileMoveEnabled, setMobileMoveEnabled] = React.useState(false);
   const [draggingIndex, setDraggingIndex] = React.useState<number | null>(null);
   const [isResizingPanel, setIsResizingPanel] = React.useState(false);
@@ -207,11 +212,11 @@ export function SpreadMap({
     const handleSpreadZoom = (event: Event) => {
       const detail = (event as CustomEvent<SpreadZoomDetail>).detail;
       if (!detail) return;
-      setPanelHeight((height) =>
+      setCardZoom((zoom) =>
         clamp(
-          height + detail.direction * RESIZE_STEP,
-          MIN_PANEL_HEIGHT,
-          MAX_PANEL_HEIGHT
+          Math.round((zoom + detail.direction * CARD_ZOOM_STEP) * 100) / 100,
+          MIN_CARD_ZOOM,
+          MAX_CARD_ZOOM
         )
       );
     };
@@ -266,12 +271,15 @@ export function SpreadMap({
     );
   }
 
-  const cardWidthPx =
+  // El alto del panel define el tamaño base y el zoom lo escala. Al reducir el
+  // tamaño base entran más cartas por fila sin tocar el alto de la mesa.
+  const baseCardWidthPx =
     panelHeight < 280
       ? CARD_WIDTH_BY_HEIGHT.compact
       : panelHeight >= 450
         ? CARD_WIDTH_BY_HEIGHT.expanded
         : CARD_WIDTH_BY_HEIGHT.regular;
+  const cardWidthPx = Math.round(baseCardWidthPx * cardZoom);
 
   const getSafeXBounds = (width: number) => {
     if (width <= 0) return { min: 9, max: 91 };
@@ -301,13 +309,7 @@ export function SpreadMap({
     };
   };
 
-  const isExpanded = panelHeight >= EXPANDED_HEIGHT - 20;
-  const cardSizeClass =
-    panelHeight < 280
-      ? "w-[72px] aspect-[3/5] p-1.5"
-      : panelHeight >= 450
-        ? "w-[84px] aspect-[3/5] p-2"
-        : "w-[78px] aspect-[3/5] p-1.5";
+  const cardSizeClass = "aspect-[3/5] p-1.5";
 
   const activeSlot =
     slots.find((s) => s.positionIndex === activePositionIndex) ?? null;
@@ -413,22 +415,26 @@ export function SpreadMap({
           )}
         </div>
 
-        {/* Panel Size Controls (Shrink / Enlarge / Toggle Expand) */}
+        {/* Card Zoom Controls (Smaller / Larger / Reset) */}
         <div
           role="group"
-          aria-label="Tamaño del panel de la mesa"
+          aria-label="Zoom de las cartas en la mesa"
           className="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-border bg-ground p-0.5"
         >
           <button
             type="button"
-            disabled={panelHeight <= MIN_PANEL_HEIGHT}
+            disabled={cardZoom <= MIN_CARD_ZOOM}
             onClick={() =>
-              setPanelHeight((h) =>
-                clamp(h - RESIZE_STEP, MIN_PANEL_HEIGHT, MAX_PANEL_HEIGHT)
+              setCardZoom((zoom) =>
+                clamp(
+                  Math.round((zoom - CARD_ZOOM_STEP) * 100) / 100,
+                  MIN_CARD_ZOOM,
+                  MAX_CARD_ZOOM
+                )
               )
             }
-            aria-label="Achicar panel de cartas"
-            title="Achicar panel"
+            aria-label="Achicar cartas"
+            title="Cartas más pequeñas"
             className="inline-flex size-6 items-center justify-center rounded text-muted transition-colors hover:bg-surface hover:text-ink disabled:opacity-35"
           >
             <Minus className="size-3.5" aria-hidden="true" />
@@ -436,14 +442,18 @@ export function SpreadMap({
 
           <button
             type="button"
-            disabled={panelHeight >= MAX_PANEL_HEIGHT}
+            disabled={cardZoom >= MAX_CARD_ZOOM}
             onClick={() =>
-              setPanelHeight((h) =>
-                clamp(h + RESIZE_STEP, MIN_PANEL_HEIGHT, MAX_PANEL_HEIGHT)
+              setCardZoom((zoom) =>
+                clamp(
+                  Math.round((zoom + CARD_ZOOM_STEP) * 100) / 100,
+                  MIN_CARD_ZOOM,
+                  MAX_CARD_ZOOM
+                )
               )
             }
-            aria-label="Agrandar panel de cartas"
-            title="Agrandar panel"
+            aria-label="Agrandar cartas"
+            title="Cartas más grandes"
             className="inline-flex size-6 items-center justify-center rounded text-muted transition-colors hover:bg-surface hover:text-ink disabled:opacity-35"
           >
             <Plus className="size-3.5" aria-hidden="true" />
@@ -451,34 +461,19 @@ export function SpreadMap({
 
           <button
             type="button"
-            aria-pressed={isExpanded}
-            aria-label={
-              isExpanded
-                ? "Contraer panel de cartas"
-                : "Ampliar panel de cartas"
-            }
-            title={isExpanded ? "Tamaño normal" : "Ampliar mesa"}
-            onClick={() =>
-              setPanelHeight(isExpanded ? computedDefaultHeight : EXPANDED_HEIGHT)
-            }
+            disabled={cardZoom === 1}
+            aria-label="Restablecer tamaño de las cartas"
+            title="Tamaño normal de las cartas"
+            onClick={() => setCardZoom(1)}
             className={cn(
-              "inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium transition-colors",
-              isExpanded
+              "inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] font-medium transition-colors disabled:opacity-35",
+              cardZoom === 1
                 ? "bg-surface text-ink"
                 : "text-muted hover:bg-surface hover:text-ink"
             )}
           >
-            {isExpanded ? (
-              <>
-                <Minimize2 className="size-3" aria-hidden="true" />
-                <span className="hidden sm:inline">Normal</span>
-              </>
-            ) : (
-              <>
-                <Maximize2 className="size-3" aria-hidden="true" />
-                <span className="hidden sm:inline">Ampliar</span>
-              </>
-            )}
+            <Maximize2 className="size-3" aria-hidden="true" />
+            <span className="hidden sm:inline">Ajustar</span>
           </button>
         </div>
       </div>
@@ -599,11 +594,12 @@ export function SpreadMap({
               style={{
                 left: `${clampX(slot.coordX)}%`,
                 top: `${slot.coordY}%`,
+                width: `${cardWidthPx}px`,
               }}
               aria-pressed={isSelected}
               aria-label={`Carta ${slot.positionIndex}: ${slot.positionTitle}${slot.card ? `, ${slot.card.canonicalName}` : ", sin carta"}`}
               className={cn(
-                "group absolute -translate-x-1/2 -translate-y-1/2 flex flex-col overflow-hidden rounded-xl border text-center transition-[border-color,transform]",
+                "group absolute -translate-x-1/2 -translate-y-1/2 flex flex-col overflow-hidden rounded-xl border text-center transition-[border-color,transform,width]",
                 cardSizeClass,
                 editable && "cursor-grab touch-none",
                 isDragging &&

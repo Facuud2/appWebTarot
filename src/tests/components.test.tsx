@@ -250,6 +250,19 @@ describe("Interactive UI components", () => {
       screen.getByRole("button", { name: /Terminar de mover/i })
     ).toHaveAttribute("aria-pressed", "true");
     expect(mapRegion).toHaveClass("touch-none");
+
+    // Los controles +/− y Ajustar escalan las cartas sin tocar el alto.
+    const initialCardWidth = pos1Btn.style.width;
+    const initialPanelHeight = mapRegion.style.height;
+    await user.click(screen.getByRole("button", { name: /Achicar cartas/i }));
+    expect(pos1Btn.style.width).not.toBe(initialCardWidth);
+    expect(mapRegion.style.height).toBe(initialPanelHeight);
+
+    await user.click(
+      screen.getByRole("button", { name: /Restablecer tamaño de las cartas/i })
+    );
+    expect(pos1Btn.style.width).toBe(initialCardWidth);
+    expect(mapRegion.style.height).toBe(initialPanelHeight);
   });
 
   it("hides appointment duration input by default and reveals it only when checking Duración específica", async () => {

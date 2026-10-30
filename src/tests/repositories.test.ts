@@ -356,6 +356,72 @@ describe("Mesa de Tarot relational repositories & multi-user isolation", () => {
     ).toHaveLength(2);
   });
 
+  it("resuelve el marcador __new__ al consultante real sin violar la FK", async () => {
+    const db = createDatabaseInstance(":memory:", { seedDemo: false });
+    const user = await registerNewUser(
+      {
+        name: "Consultante nuevo",
+        workspaceName: "Mesa de alta rápida",
+        email: "alta-rapida@test.org",
+        password: "clave-segura-alta",
+      },
+      db
+    );
+    const decks = await listAvailableDecks(user.id, db);
+    const defaultDeck = decks.find((deck) => deck.isDefault)!;
+
+    const draft = await createReadingDraft(
+      user.id,
+      {
+        title: "Lectura con consultante recién creado",
+        consultantId: "__new__",
+        appointmentId: "",
+        deckIds: [defaultDeck.id],
+        quickNewDecks: [],
+        quickNewConsultant: "Camila Nueva",
+        spreadMode: "classic",
+        spreadTemplateId: "spread-triad-observation",
+        spreadName: "Pasado, Presente y Futuro (3 cartas)",
+        customPositions: [],
+        questionIntention: "¿Qué ciclo se abre?",
+        sessionContext: "",
+        performedAt: "2026-11-03T00:30:00.000Z",
+      },
+      db
+    );
+
+    expect(draft.consultantId).toBeTruthy();
+    expect(draft.consultant?.displayName).toBe("Camila Nueva");
+
+    // El formulario sigue enviando el marcador al completar la lectura.
+    const saved = await updateReadingSession(
+      user.id,
+      {
+        readingId: draft.id,
+        title: draft.title,
+        consultantId: "__new__",
+        deckIds: draft.deckIds,
+        spreadTemplateId: "spread-triad-observation",
+        spreadName: "Pasado, Presente y Futuro (3 cartas)",
+        customPositions: [],
+        questionIntention: "¿Qué ciclo se abre?",
+        sessionContext: "",
+        status: "completed",
+        performedAt: "2026-11-03T00:30:00.000Z",
+        generalObservations: "",
+        sessionSynthesis: "Cierre de ciclo y apertura de uno nuevo.",
+        closingReflections: "",
+        tags: [],
+        cards: [],
+      },
+      db
+    );
+
+    expect(saved.consultantId).toBe(draft.consultantId);
+    expect(saved.consultant?.displayName).toBe("Camila Nueva");
+    expect(saved.status).toBe("completed");
+  });
+
   it("enforces strict user isolation between private accounts and demo data", async () => {
     const db = createDatabaseInstance(":memory:", { seedDemo: true });
     const privateUser = await registerNewUser(

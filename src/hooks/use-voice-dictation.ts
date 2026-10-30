@@ -82,6 +82,36 @@ let activeResetState: (() => void) | null = null;
 let pendingStart: { owner: symbol; run: () => void } | null = null;
 let pendingStartTimer: number | null = null;
 
+let micPrimed = false;
+let micPriming: Promise<void> | null = null;
+
+/**
+ * Pide el permiso del micrófono antes de iniciar el reconocimiento. Si el
+ * aviso aparece durante `recognition.start()`, Chrome deja la primera sesión
+ * sin captar audio hasta recargar la página.
+ */
+function primeMicrophone(): Promise<void> {
+  if (micPrimed) return Promise.resolve();
+  if (micPriming) return micPriming;
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    micPrimed = true;
+    return Promise.resolve();
+  }
+  micPriming = navigator.mediaDevices
+    .getUserMedia({ audio: true })
+    .then((stream) => {
+      stream.getTracks().forEach((track) => track.stop());
+      micPrimed = true;
+    })
+    .catch(() => {
+      // Si se deniega, el reconocimiento informará el error habitual.
+    })
+    .finally(() => {
+      micPriming = null;
+    });
+  return micPriming;
+}
+
 function clearPendingStart() {
   if (pendingStartTimer !== null) {
     window.clearTimeout(pendingStartTimer);
@@ -153,6 +183,13 @@ export function useVoiceDictation({
   const recognitionRef = React.useRef<SpeechRecognitionLike | null>(null);
   const onTranscriptRef = React.useRef(onTranscript);
   const shouldKeepListeningRef = React.useRef(false);
+  /**
+   * La sesión sigue viva hasta que el navegador emite `end`. Mientras se está
+   * cerrando, un segundo toque no debe crear otra instancia en paralelo:
+   * Chrome/WebKit lanzan `InvalidStateError` y el micrófono queda muerto.
+   */
+  const stoppingRef = React.useRef(false);
+  const stopReleaseTimerRef = React.useRef<number | null>(null);
   const lastAndroidFinalRef = React.useRef("");
   const startRecognitionRef = React.useRef<(language?: string) => void>(() => {});
   const [isListening, setIsListening] = React.useState(false);
@@ -180,31 +217,74 @@ export function useVoiceDictation({
 
   const stopListening = React.useCallback(() => {
     shouldKeepListeningRef.current = false;
+    stoppingRef.current = true;
     if (pendingStart?.owner === ownerRef.current) clearPendingStart();
+    setIsListening(false);
+    setInterimTranscript("");
+
     const recognition = recognitionRef.current;
     if (!recognition || activeOwner !== ownerRef.current) {
-      setIsListening(false);
-      setInterimTranscript("");
+      stoppingRef.current = false;
       return;
     }
+
+    const release = () => {
+      if (activeRecognition === recognition) {
+        activeRecognition = null;
+        activeOwner = null;
+        activeShouldKeepListeningRef = null;
+        activeResetState = null;
+      }
+      if (recognitionRef.current === recognition) {
+        recognitionRef.current = null;
+      }
+      stoppingRef.current = false;
+      if (stopReleaseTimerRef.current !== null) {
+        window.clearTimeout(stopReleaseTimerRef.current);
+        stopReleaseTimerRef.current = null;
+      }
+      if (activeRecognition === null) runPendingStart();
+    };
 
     try {
       recognition.stop();
     } catch {
-      setError("No se pudo detener el dictado. Inténtalo de nuevo.");
+      // Si ya estaba cerrada, liberamos el canal de inmediato.
+      try {
+        recognition.abort();
+      } catch {
+        // La sesión ya estaba cerrada: nada que abortar.
+      }
+      release();
+      return;
     }
-    activeRecognition = null;
-    activeOwner = null;
-    activeShouldKeepListeningRef = null;
-    activeResetState = null;
-    recognitionRef.current = null;
-    setIsListening(false);
-    setInterimTranscript("");
+
+    // Red de seguridad: algunos navegadores no emiten `end` tras `stop()`.
+    // Sin esto, la siguiente pulsación quedaría encolada para siempre.
+    if (stopReleaseTimerRef.current !== null) {
+      window.clearTimeout(stopReleaseTimerRef.current);
+    }
+    stopReleaseTimerRef.current = window.setTimeout(() => {
+      stopReleaseTimerRef.current = null;
+      if (activeRecognition === recognition) {
+        try {
+          recognition.abort();
+        } catch {
+          // La sesión ya estaba cerrada.
+        }
+        release();
+      }
+    }, 800);
   }, []);
 
   const startRecognition = React.useCallback((language = "es-AR") => {
     const beginSession = () => {
       if (!shouldKeepListeningRef.current) return;
+      stoppingRef.current = false;
+      if (stopReleaseTimerRef.current !== null) {
+        window.clearTimeout(stopReleaseTimerRef.current);
+        stopReleaseTimerRef.current = null;
+      }
       const platformBlock = getPlatformVoiceNotice();
       if (platformBlock) {
         shouldKeepListeningRef.current = false;
@@ -291,6 +371,11 @@ export function useVoiceDictation({
           // error para la persona que dicta.
           setInterimTranscript("");
           setIsListening(false);
+          stoppingRef.current = false;
+          if (stopReleaseTimerRef.current !== null) {
+            window.clearTimeout(stopReleaseTimerRef.current);
+            stopReleaseTimerRef.current = null;
+          }
           if (activeRecognition === recognition) {
             activeRecognition = null;
             activeOwner = null;
@@ -301,11 +386,14 @@ export function useVoiceDictation({
           if (activeRecognition === null) runPendingStart();
           return;
         }
-        if (isAndroid && event.error === "no-speech") {
+        if (event.error === "no-speech") {
+          // Una pausa no debe cerrar el dictado: el `end` posterior reabre la
+          // escucha si la persona sigue con el micrófono activo.
           setInterimTranscript("");
           return;
         }
         shouldKeepListeningRef.current = false;
+        stoppingRef.current = false;
         setError(getRecognitionErrorMessage(event.error, electronVoiceBlocked));
         setIsListening(false);
         setInterimTranscript("");
@@ -315,6 +403,10 @@ export function useVoiceDictation({
           activeShouldKeepListeningRef = null;
           activeResetState = null;
           recognitionRef.current = null;
+        }
+        if (stopReleaseTimerRef.current !== null) {
+          window.clearTimeout(stopReleaseTimerRef.current);
+          stopReleaseTimerRef.current = null;
         }
         if (activeRecognition === null) runPendingStart();
       };
@@ -328,6 +420,11 @@ export function useVoiceDictation({
           activeResetState = null;
           recognitionRef.current = null;
         }
+        stoppingRef.current = false;
+        if (stopReleaseTimerRef.current !== null) {
+          window.clearTimeout(stopReleaseTimerRef.current);
+          stopReleaseTimerRef.current = null;
+        }
         // Si otro campo quedó esperando turno, arranca ahora que el canal está
         // libre.
         if (activeRecognition === null) runPendingStart();
@@ -337,7 +434,11 @@ export function useVoiceDictation({
           startRecognitionRef.current(fallback);
           return;
         }
-        if (isAndroid && shouldKeepListeningRef.current) {
+        // Safari/WebKit también corta la sesión tras una pausa aunque
+        // `continuous` esté activo. Si la persona no detuvo el dictado,
+        // reabrimos la escucha en cualquier plataforma para que el micrófono
+        // no quede inservible hasta recargar la página.
+        if (shouldKeepListeningRef.current && activeRecognition === null) {
           window.setTimeout(() => {
             if (
               !shouldKeepListeningRef.current ||
@@ -347,16 +448,19 @@ export function useVoiceDictation({
               return;
             }
             startRecognitionRef.current(language);
-          }, 150);
+          }, isAndroid ? 150 : 250);
           return;
         }
-        setIsListening(false);
+        // Un arranque encolado pudo crear una sesión nueva dentro de este
+        // mismo `end`; en ese caso no apagamos su indicador.
+        if (activeRecognition === null) setIsListening(false);
       };
 
       try {
         recognition.start();
         setIsListening(true);
       } catch (startError) {
+        stoppingRef.current = false;
         if (activeRecognition === recognition) {
           activeRecognition = null;
           activeOwner = null;
@@ -385,17 +489,22 @@ export function useVoiceDictation({
     };
 
     if (activeRecognition) {
-      // Este campo ya está dictando: no hay nada que hacer.
-      if (activeOwner === ownerRef.current) return;
+      // Este campo ya está dictando de forma activa: no hay nada que hacer.
+      // Si está cerrándose, encolamos una sesión nueva en lugar de crear otra
+      // instancia en paralelo.
+      if (activeOwner === ownerRef.current && !stoppingRef.current) return;
       // Ya hay un arranque encolado para este campo.
       if (pendingStart?.owner === ownerRef.current) return;
 
-      if (activeShouldKeepListeningRef) {
+      // Si es otro campo el que toma el turno, apagamos su intención de
+      // escucha y su indicador. Si es el mismo campo reiniciándose tras un
+      // stop, conservamos la intención nueva para que el arranque encolado
+      // no se cancele a sí mismo.
+      const sameOwner = activeOwner === ownerRef.current;
+      if (activeShouldKeepListeningRef && !sameOwner) {
         activeShouldKeepListeningRef.current = false;
+        activeResetState?.();
       }
-      // El campo anterior deja de mostrarse como «escuchando» en cuanto cede
-      // el turno, aunque su `end` tarde en llegar.
-      activeResetState?.();
       const previous = activeRecognition;
       pendingStart = { owner: ownerRef.current, run: beginSession };
       if (pendingStartTimer !== null) window.clearTimeout(pendingStartTimer);
@@ -441,7 +550,16 @@ export function useVoiceDictation({
       return;
     }
 
-    beginSession();
+    const canPrime =
+      typeof navigator !== "undefined" &&
+      !!navigator.mediaDevices?.getUserMedia;
+    if (micPrimed || !canPrime) {
+      beginSession();
+    } else {
+      void primeMicrophone().then(() => {
+        if (!activeRecognition) beginSession();
+      });
+    }
   }, [profile.os, resetOwnerState]);
 
   const startListening = React.useCallback(() => {
@@ -462,6 +580,11 @@ export function useVoiceDictation({
   React.useEffect(
     () => () => {
       shouldKeepListeningRef.current = false;
+      stoppingRef.current = false;
+      if (stopReleaseTimerRef.current !== null) {
+        window.clearTimeout(stopReleaseTimerRef.current);
+        stopReleaseTimerRef.current = null;
+      }
       if (pendingStart?.owner === ownerRef.current) clearPendingStart();
       if (activeOwner === ownerRef.current) {
         const recognition = recognitionRef.current;

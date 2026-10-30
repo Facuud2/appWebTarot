@@ -82,20 +82,40 @@ test.describe("Selector de cartas", () => {
         const vvh = parseFloat(
           document.documentElement.style.getPropertyValue("--vvh")
         );
+        const wrapper = document.querySelector(
+          "[data-radix-popper-content-wrapper]"
+        ) as HTMLElement | null;
+        const rect = wrapper?.getBoundingClientRect();
+        const vv = window.visualViewport;
         return {
           listMaxHeight: list ? parseFloat(getComputedStyle(list).maxHeight) : 0,
           popoverMaxHeight: content
             ? parseFloat(getComputedStyle(content).maxHeight)
             : 0,
           vvh,
+          top: rect?.top ?? -1,
+          bottom: rect?.bottom ?? -1,
+          left: rect?.left ?? -1,
+          right: rect?.right ?? -1,
+          vvTop: vv?.offsetTop ?? 0,
+          vvLeft: vv?.offsetLeft ?? 0,
+          vvWidth: vv?.width ?? window.innerWidth,
         };
       });
+
+    const expectInsideViewport = (box: Awaited<ReturnType<typeof measure>>) => {
+      expect(box.top).toBeGreaterThanOrEqual(box.vvTop - 1);
+      expect(box.bottom).toBeLessThanOrEqual(box.vvTop + box.vvh + 1);
+      expect(box.left).toBeGreaterThanOrEqual(box.vvLeft - 1);
+      expect(box.right).toBeLessThanOrEqual(box.vvLeft + box.vvWidth + 1);
+    };
 
     const before = await measure();
     expect(before.vvh).toBeGreaterThan(0);
     expect(before.listMaxHeight).toBeGreaterThan(0);
     expect(before.listMaxHeight).toBeLessThanOrEqual(before.vvh);
     expect(before.popoverMaxHeight).toBeLessThanOrEqual(before.vvh);
+    expectInsideViewport(before);
 
     await setKeyboardOpen(page, true);
     await expect
@@ -105,6 +125,9 @@ test.describe("Selector de cartas", () => {
     const after = await measure();
     expect(after.listMaxHeight).toBeLessThanOrEqual(after.vvh);
     expect(after.popoverMaxHeight).toBeLessThanOrEqual(after.vvh);
+    // El popover debe reacomodarse dentro del viewport visual, no quedar
+    // empujado fuera por el teclado.
+    expectInsideViewport(after);
     expect(search).toBeVisible();
   });
 });

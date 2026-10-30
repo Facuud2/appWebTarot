@@ -318,20 +318,56 @@ html:is([data-os="ios"], [data-os="ipados"], [data-os="android"])
   font-variant-numeric: tabular-nums;
 }
 
-.voice-listening-indicator {
-  animation: voice-listening 1.5s ease-in-out infinite;
+/* Dictado activo: ondas de escucha en lugar del icono de micrófono. */
+.voice-wave {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  height: 18px;
 }
 
-@keyframes voice-listening {
+.voice-wave-bar {
+  width: 2.5px;
+  height: 100%;
+  border-radius: 999px;
+  background-color: currentColor;
+  transform-origin: center;
+  animation: voice-wave-pulse 1s ease-in-out infinite both;
+}
+
+.voice-wave-bar:nth-child(1),
+.voice-wave-bar:nth-child(5) {
+  height: 55%;
+}
+
+.voice-wave-bar:nth-child(2),
+.voice-wave-bar:nth-child(4) {
+  height: 80%;
+}
+
+@keyframes voice-wave-pulse {
   0%,
   100% {
-    opacity: 1;
-    transform: scale(1);
+    transform: scaleY(0.28);
+    opacity: 0.55;
   }
 
   50% {
-    opacity: 0.45;
-    transform: scale(0.88);
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-wave-bar {
+    animation: none;
+    transform: scaleY(0.6);
+    opacity: 0.8;
+  }
+
+  .voice-wave-bar:nth-child(2n) {
+    transform: scaleY(1);
   }
 }
 

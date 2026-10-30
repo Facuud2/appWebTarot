@@ -790,7 +790,22 @@ export async function updateReadingSession(
     ? toIsoUtcString(values.performedAt)
     : existing.performedAt;
 
-  const consultantId = values.consultantId.trim() || null;
+  // El formulario de alta envía el marcador `__new__` mientras el consultante
+  // todavía no existe. Al guardar la sesión ese marcador no es un id válido y
+  // rompía la FK de `readings.consultant_id`. Si la lectura ya fue creada, el
+  // consultante real vive en la fila existente; si no, se deja sin consultante.
+  let consultantId = values.consultantId.trim() || null;
+  if (consultantId === "__new__") {
+    consultantId = existing.consultantId;
+  } else if (consultantId) {
+    const ownedConsultant = (await db
+      .prepare("SELECT id FROM consultants WHERE user_id = ? AND id = ?")
+      .get(userId, consultantId)) as { id: string } | undefined;
+    if (!ownedConsultant) {
+      throw new Error("El consultante elegido no pertenece a tu espacio.");
+    }
+  }
+
   const allDeckIds = await resolvePersistedDeckIds(
     userId,
     values.deckIds,
@@ -798,6 +813,18 @@ export async function updateReadingSession(
   );
   const primaryDeckId = allDeckIds[0] ?? null;
   let spreadTemplateId = values.spreadTemplateId.trim() || null;
+  if (spreadTemplateId) {
+    const ownedSpread = (await db
+      .prepare(
+        "SELECT id FROM spread_templates WHERE id = ? AND (is_builtin = 1 OR user_id = ?)"
+      )
+      .get(spreadTemplateId, userId)) as { id: string } | undefined;
+    if (!ownedSpread) {
+      // Una plantilla borrada o de otro espacio no debe impedir guardar la
+      // lectura: se conserva la estructura personalizada ya normalizada.
+      spreadTemplateId = null;
+    }
+  }
   const normalizedPositions: SpreadPositionDefinition[] =
     values.customPositions.map((p, idx) => ({
       positionIndex: idx + 1,

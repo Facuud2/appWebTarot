@@ -565,19 +565,28 @@ describe("3-step New Reading Wizard (Lectura Nueva direct flow)", () => {
     }
   });
 
-  it("adds reading tags with Enter or comma and keeps focus in the input", async () => {
+  it("splits comma-separated tags and closes the keyboard on Enter", async () => {
     const user = userEvent.setup();
-    const onChange = vi.fn();
 
-    render(<TagInput value={[]} onChange={onChange} />);
+    function TagHarness() {
+      const [tags, setTags] = React.useState<string[]>([]);
+      return <TagInput value={tags} onChange={setTags} />;
+    }
+
+    render(<TagHarness />);
     const input = screen.getByRole("textbox");
 
-    await user.type(input, "trabajo{Enter}");
-    expect(onChange).toHaveBeenLastCalledWith(["trabajo"]);
-    expect(input).toHaveFocus();
+    await user.type(input, "ex, chongo, amor{Enter}");
+    expect(screen.getByText("ex")).toBeInTheDocument();
+    expect(screen.getByText("chongo")).toBeInTheDocument();
+    expect(screen.getByText("amor")).toBeInTheDocument();
+    // Enter confirma y suelta el foco para bajar el teclado en móvil.
+    expect(input).not.toHaveFocus();
 
+    await user.click(input);
     await user.type(input, "vínculos,");
-    expect(onChange).toHaveBeenLastCalledWith(["vínculos"]);
+    expect(screen.getByText("vínculos")).toBeInTheDocument();
+    // La coma confirma sin cerrar el campo: se pueden seguir escribiendo tags.
     expect(input).toHaveFocus();
   });
 });

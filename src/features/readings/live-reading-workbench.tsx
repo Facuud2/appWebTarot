@@ -156,10 +156,18 @@ function buildInitialSlots(
     const coordY = basePos?.coordY ?? 50;
 
     if (saved) {
+      // Si la posición quedó con el título automático «Carta N», mostramos el
+      // nombre real de la carta elegida para que la lectura sea legible.
+      const autoTitle = /^Carta\s+\d+$/i.test(saved.positionTitle.trim());
+      const positionTitle =
+        autoTitle && saved.card?.canonicalName
+          ? saved.card.canonicalName
+          : saved.positionTitle;
+
       slots.push({
         localKey: saved.id,
         positionIndex: idx,
-        positionTitle: saved.positionTitle,
+        positionTitle,
         positionPrompt: saved.positionPrompt,
         coordX,
         coordY,
@@ -423,9 +431,10 @@ export function LiveReadingWorkbench({
   const [sessionContext, setSessionContext] = React.useState(
     initialReading.sessionContext
   );
-  const [generalObservations, setGeneralObservations] = React.useState(
-    initialReading.generalObservations
-  );
+  // Se conserva el valor heredado de lecturas anteriores, pero la interfaz ya
+  // no expone un campo separado: todo se escribe en «Significado y
+  // observaciones».
+  const generalObservations = initialReading.generalObservations;
   const [sessionSynthesis, setSessionSynthesis] = React.useState(
     initialReading.sessionSynthesis
   );
@@ -1314,23 +1323,15 @@ export function LiveReadingWorkbench({
             <section className="rounded-xl border border-border bg-surface p-5 sm:p-6 space-y-4">
               <div className="space-y-1.5">
                 <h2 className="text-sm font-semibold text-ink">
-                  Conclusión de la lectura
+                  Significado y observaciones
                 </h2>
                 <p className="text-sm text-ink leading-relaxed whitespace-pre-line">
-                  {sessionSynthesis || "Sin conclusión redactada todavía."}
+                  {[sessionSynthesis, generalObservations]
+                    .map((value) => value.trim())
+                    .filter(Boolean)
+                    .join("\n\n") || "Sin significado redactado todavía."}
                 </p>
               </div>
-
-              {generalObservations.trim() ? (
-                <div className="border-t border-border pt-4 space-y-1.5">
-                  <h3 className="text-xs font-semibold text-ink">
-                    Observaciones generales de la mesa
-                  </h3>
-                  <p className="text-sm text-muted leading-relaxed whitespace-pre-line">
-                    {generalObservations}
-                  </p>
-                </div>
-              ) : null}
 
               {closingReflections.trim() ? (
                 <div className="border-t border-border pt-4 space-y-1.5">
@@ -2081,27 +2082,8 @@ export function LiveReadingWorkbench({
               </h2>
 
               <div className="space-y-1.5">
-                <Label htmlFor="live-general-obs">
-                  Observaciones generales{" "}
-                  <span className="text-muted font-normal">
-                    (palos predominantes, arcanos mayores, ritmo de la mezcla)
-                  </span>
-                </Label>
-                <Textarea
-                  id="live-general-obs"
-                  rows={2}
-                  value={generalObservations}
-                  onChange={(e) => {
-                    setGeneralObservations(e.target.value);
-                    markDirty();
-                  }}
-                  placeholder="Ej. Predominio de Espadas y Oros; figuras mirando hacia el centro…"
-                />
-              </div>
-
-              <div className="space-y-1.5">
                 <Label htmlFor="live-synthesis">
-                  Conclusión de la lectura
+                  Significado y observaciones
                 </Label>
                 <Textarea
                   id="live-synthesis"
@@ -2111,7 +2093,7 @@ export function LiveReadingWorkbench({
                     setSessionSynthesis(e.target.value);
                     markDirty();
                   }}
-                  placeholder="Mensaje central y síntesis de la tirada…"
+                  placeholder="Significado central de la tirada, atmósfera, sincronicidades, consejo final o plan de acción…"
                 />
               </div>
 

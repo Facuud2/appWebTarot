@@ -644,6 +644,44 @@
 }
 
 /* ============================================================================
+   13b. CARTA AÑADIDA A UNA ESTRUCTURA (.t-add-card / .t-add-dot)
+   ============================================================================ */
+.t-add-card {
+  animation: t-add-card-rise var(--duration-fast) var(--ease-smooth-out) both;
+  will-change: opacity, transform;
+}
+
+@keyframes t-add-card-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.t-add-dot {
+  animation: t-add-dot-pop var(--duration-slow) var(--ease-smooth-out) both;
+}
+
+@keyframes t-add-dot-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ============================================================================
    14. ACCESIBILIDAD — PREFERS-REDUCED-MOTION
    ============================================================================ */
 @media (prefers-reduced-motion: reduce) {
@@ -662,7 +700,9 @@
   .t-text-swap,
   .t-check-mark,
   .t-check-mark path,
-  .t-success-overlay {
+  .t-success-overlay,
+  .t-add-card,
+  .t-add-dot {
     animation: none !important;
     transition: none !important;
     transform: none !important;

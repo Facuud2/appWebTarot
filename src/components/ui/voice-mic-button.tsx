@@ -1,6 +1,6 @@
 "use client";
 
-import { Mic, MicOff } from "lucide-react";
+import { Mic } from "lucide-react";
 import { useVoiceDictation } from "@/hooks/use-voice-dictation";
 import { cn } from "@/lib/utils";
 
@@ -11,6 +11,8 @@ interface VoiceMicButtonProps {
   className?: string;
 }
 
+const WAVE_BARS = [0, 1, 2, 3, 4] as const;
+
 export function VoiceMicButton({
   onTranscript,
   disabled = false,
@@ -20,7 +22,6 @@ export function VoiceMicButton({
   const {
     isSupported,
     isListening,
-    interimTranscript,
     error,
     platformNotice,
     toggleListening,
@@ -54,24 +55,24 @@ export function VoiceMicButton({
         )}
       >
         {isListening ? (
-          <MicOff className="size-4" aria-hidden="true" />
+          <span className="voice-wave" aria-hidden="true">
+            {WAVE_BARS.map((bar) => (
+              <span
+                key={bar}
+                className="voice-wave-bar"
+                style={{ animationDelay: `${bar * 110}ms` }}
+              />
+            ))}
+          </span>
         ) : (
           <Mic className="size-4" aria-hidden="true" />
         )}
       </button>
       <div className="min-w-0 text-xs" aria-live="polite">
         {isListening ? (
-          <>
-            <p className="flex items-center gap-1.5 font-medium text-positive">
-              <span className="voice-listening-indicator size-1.5 rounded-full bg-positive" />
-              Escuchando…
-            </p>
-            {interimTranscript ? (
-              <p className="max-w-48 truncate text-muted">
-                {interimTranscript}
-              </p>
-            ) : null}
-          </>
+          <p className="flex items-center gap-1.5 font-medium text-positive">
+            Escuchando…
+          </p>
         ) : error ? (
           <p className="max-w-48 text-negative">{error}</p>
         ) : null}

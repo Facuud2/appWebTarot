@@ -20,17 +20,43 @@ export function TagInput({
   placeholder = "Escribe una etiqueta y pulsa Enter…",
 }: TagInputProps) {
   const [draft, setDraft] = React.useState("");
+  // Evita volver a confirmar el mismo texto cuando Enter provoca el blur.
+  const skipBlurCommitRef = React.useRef(false);
 
-  const addTag = (raw: string) => {
-    const cleaned = raw.trim().replace(/\s+/g, " ");
-    if (!cleaned) return;
-    const exists = value.some(
-      (item) => item.toLowerCase() === cleaned.toLowerCase()
-    );
-    if (!exists && value.length < 15) {
-      onChange([...value, cleaned]);
+  /**
+   * Acepta una o varias etiquetas separadas por comas. En móvil, Enter confirma
+   * y cierra el teclado; la coma también confirma sin salir del campo.
+   */
+  const addTags = (rawParts: string[]) => {
+    const next = [...value];
+    for (const raw of rawParts) {
+      const cleaned = raw.trim().replace(/\s+/g, " ");
+      if (!cleaned) continue;
+      if (next.length >= 15) break;
+      const exists = next.some(
+        (item) => item.toLowerCase() === cleaned.toLowerCase()
+      );
+      if (!exists) next.push(cleaned);
     }
+    if (next.length !== value.length) {
+      onChange(next);
+    }
+  };
+
+  const commitDraft = (raw: string) => {
+    addTags(raw.split(","));
     setDraft("");
+  };
+
+  const handleChange = (raw: string) => {
+    if (!raw.includes(",")) {
+      setDraft(raw);
+      return;
+    }
+    const segments = raw.split(",");
+    const remainder = segments.pop() ?? "";
+    addTags(segments);
+    setDraft(remainder);
   };
 
   const removeTag = (target: string) => {
@@ -49,13 +75,26 @@ export function TagInput({
         <Input
           id={id}
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => handleChange(e.target.value)}
+          onBlur={() => {
+            if (skipBlurCommitRef.current) {
+              skipBlurCommitRef.current = false;
+              return;
+            }
+            commitDraft(draft);
+          }}
           placeholder={placeholder}
           autoCapitalize="none"
+          autoComplete="off"
+          enterKeyHint="done"
           onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === ",") {
+            if (e.key === "Enter") {
               e.preventDefault();
-              addTag(draft);
+              skipBlurCommitRef.current = true;
+              commitDraft(draft);
+              // En teclados móviles Enter debe terminar la escritura y bajar
+              // el teclado, no dejar el foco atrapado en el campo.
+              e.currentTarget.blur();
             } else if (
               e.key === "Backspace" &&
               draft.length === 0 &&
@@ -67,7 +106,7 @@ export function TagInput({
         />
         <button
           type="button"
-          onClick={() => addTag(draft)}
+          onClick={() => commitDraft(draft)}
           disabled={draft.trim().length === 0}
           aria-label="Añadir etiqueta"
           className="inline-flex h-11 sm:h-10 shrink-0 items-center gap-1.5 rounded-lg border border-control bg-raised px-3 text-sm font-medium text-ink hover:bg-surface disabled:opacity-45"
@@ -106,7 +145,7 @@ export function TagInput({
             <button
               key={sug}
               type="button"
-              onClick={() => addTag(sug)}
+              onClick={() => addTags([sug])}
               className="rounded-md border border-border bg-surface px-2 py-0.5 text-xs text-muted hover:border-control hover:text-ink"
             >
               + {sug}

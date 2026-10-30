@@ -97,12 +97,12 @@ describe("native voice dictation", () => {
       return (
         <div>
           <textarea
-            aria-label="Síntesis o conclusión"
+            aria-label="Significado y observaciones"
             value={text}
             onChange={(event) => setText(event.target.value)}
           />
           <VoiceMicButton
-            fieldLabel="síntesis o conclusión"
+            fieldLabel="significado y observaciones"
             onTranscript={(chunk) =>
               setText((current) => appendVoiceTranscript(current, chunk))
             }
@@ -112,7 +112,7 @@ describe("native voice dictation", () => {
     }
 
     render(<DictationField />);
-    const field = screen.getByRole("textbox", { name: "Síntesis o conclusión" });
+    const field = screen.getByRole("textbox", { name: "Significado y observaciones" });
     await user.type(field, "Inicio de sesión.");
     await user.click(screen.getByRole("button", { name: "Iniciar dictado por voz" }));
 
@@ -181,6 +181,38 @@ describe("native voice dictation", () => {
     emitFinalTranscript(secondRecognition, "notas del segundo campo");
     expect(secondChunk).toHaveBeenCalledWith("Notas del segundo campo");
     expect(firstChunk).not.toHaveBeenCalled();
+  });
+
+  it("reinicia el mismo campo si se pulsa de nuevo mientras la sesión cierra", async () => {
+    const user = userEvent.setup();
+    render(<VoiceMicButton fieldLabel="pregunta" onTranscript={vi.fn()} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Iniciar dictado por voz" })
+    );
+    const firstRecognition = MockSpeechRecognition.instances[0]!;
+    // El navegador tarda en emitir `end` tras `stop()`.
+    firstRecognition.stop = vi.fn();
+
+    await user.click(
+      screen.getByRole("button", { name: "Detener dictado por voz" })
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Iniciar dictado por voz" })
+    );
+
+    // No debe abrir una sesión paralela mientras la anterior sigue viva.
+    expect(MockSpeechRecognition.instances).toHaveLength(1);
+
+    act(() => firstRecognition.onend?.());
+
+    await waitFor(() =>
+      expect(MockSpeechRecognition.instances).toHaveLength(2)
+    );
+    expect(MockSpeechRecognition.instances[1]!.start).toHaveBeenCalledOnce();
+    expect(
+      screen.getByRole("button", { name: "Detener dictado por voz" })
+    ).toBeInTheDocument();
   });
 
   it("espera el fin de la sesión anterior antes de arrancar la nueva", async () => {

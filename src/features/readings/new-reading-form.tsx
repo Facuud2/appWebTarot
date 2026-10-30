@@ -343,6 +343,22 @@ export function NewReadingForm({
   const [customPositions, setCustomPositions] = React.useState<
     SpreadPositionDefinition[]
   >(DEFAULT_CUSTOM_POSITIONS);
+  const customPositionsListRef = React.useRef<HTMLDivElement | null>(null);
+  // Posición recién añadida: se resalta unos segundos y se hace scroll hasta
+  // ella para que la persona no tenga que buscar dónde apareció la carta.
+  const [recentlyAddedPosition, setRecentlyAddedPosition] = React.useState<
+    number | null
+  >(null);
+  const recentlyAddedTimerRef = React.useRef<number | null>(null);
+
+  React.useEffect(
+    () => () => {
+      if (recentlyAddedTimerRef.current !== null) {
+        window.clearTimeout(recentlyAddedTimerRef.current);
+      }
+    },
+    []
+  );
 
   // Step 2 & 3 State: Card Slots Data & Local Events
   const [cardSlots, setCardSlots] = React.useState<CardSlotData[]>([]);
@@ -380,7 +396,6 @@ export function NewReadingForm({
   const [sessionTitle, setSessionTitle] = React.useState(
     initialAppointment?.title ?? ""
   );
-  const [generalObservations, setGeneralObservations] = React.useState("");
   const [sessionSynthesis, setSessionSynthesis] = React.useState("");
   const [readingTags, setReadingTags] = React.useState<string[]>([]);
 
@@ -509,6 +524,25 @@ export function NewReadingForm({
       coordX: Math.round(15 + (idx / Math.max(1, newPositions.length - 1)) * 70),
     }));
     setCustomPositions(redistributed);
+    setRecentlyAddedPosition(nextIdx);
+    if (recentlyAddedTimerRef.current !== null) {
+      window.clearTimeout(recentlyAddedTimerRef.current);
+    }
+    recentlyAddedTimerRef.current = window.setTimeout(() => {
+      recentlyAddedTimerRef.current = null;
+      setRecentlyAddedPosition(null);
+    }, 3200);
+    // La lista tiene scroll propio: llevamos la vista al final cuando React ya
+    // pintó la nueva fila.
+    window.requestAnimationFrame(() => {
+      const list = customPositionsListRef.current;
+      if (!list) return;
+      if (typeof list.scrollTo === "function") {
+        list.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
+      } else {
+        list.scrollTop = list.scrollHeight;
+      }
+    });
   };
 
   const removeCustomPosition = (indexToRemove: number) => {
@@ -528,6 +562,13 @@ export function NewReadingForm({
           : Math.round(15 + (idx / (filtered.length - 1)) * 70),
     }));
     setCustomPositions(reindexed);
+    // Al quitar una posición los índices cambian: el resaltado dejaría de
+    // apuntar a la fila correcta.
+    if (recentlyAddedTimerRef.current !== null) {
+      window.clearTimeout(recentlyAddedTimerRef.current);
+      recentlyAddedTimerRef.current = null;
+    }
+    setRecentlyAddedPosition(null);
   };
 
   const updateCustomPositionField = (
@@ -839,6 +880,7 @@ export function NewReadingForm({
       );
 
       let readingId = currentDraftId;
+      let resolvedConsultantId = consultantId;
 
       if (!readingId) {
         const draftRes = await createReadingDraftAction({
@@ -882,6 +924,8 @@ export function NewReadingForm({
 
         readingId = draftRes.data.id;
         setCurrentDraftId(readingId);
+        // El borrador resuelve el consultante recién creado a su id real.
+        resolvedConsultantId = draftRes.data.consultantId ?? "";
       }
 
       // Record deck events
@@ -919,7 +963,7 @@ export function NewReadingForm({
       const saveRes = await saveReadingSessionAction({
         readingId,
         title: resolvedTitle,
-        consultantId: consultantId || "",
+        consultantId: resolvedConsultantId,
         deckIds: selectedDeckIds,
         spreadTemplateId: spreadMode === "classic" ? spreadTemplateId : "",
         spreadName:
@@ -937,7 +981,7 @@ export function NewReadingForm({
         sessionContext: sessionContext.trim(),
         status: "draft",
         performedAt: toIsoUtcString(performedAt),
-        generalObservations: generalObservations.trim(),
+        generalObservations: "",
         sessionSynthesis: sessionSynthesis.trim(),
         closingReflections: "",
         tags: readingTags,
@@ -977,7 +1021,6 @@ export function NewReadingForm({
     sessionContext,
     performedAt,
     localDeckEvents,
-    generalObservations,
     sessionSynthesis,
     readingTags,
     setIsDirty,
@@ -1011,7 +1054,6 @@ export function NewReadingForm({
       cardSlots.some((s) => s.cardId && s.cardId.trim().length > 0) ||
       localDeckEvents.length > 0 ||
       sessionSynthesis.trim().length > 0 ||
-      generalObservations.trim().length > 0 ||
       readingTags.length > 0;
 
     setIsDirty(isChanged);
@@ -1030,7 +1072,6 @@ export function NewReadingForm({
     cardSlots,
     localDeckEvents,
     sessionSynthesis,
-    generalObservations,
     readingTags,
     setIsDirty,
   ]);
@@ -1093,6 +1134,7 @@ export function NewReadingForm({
         );
 
         let readingId = currentDraftId;
+        let resolvedConsultantId = consultantId;
 
         if (!readingId) {
           const draftRes = await createReadingDraftAction({
@@ -1135,6 +1177,8 @@ export function NewReadingForm({
           }
 
           readingId = draftRes.data.id;
+          // El borrador resuelve el consultante recién creado a su id real.
+          resolvedConsultantId = draftRes.data.consultantId ?? "";
         }
 
         // 2. Record all physical deck events
@@ -1172,7 +1216,7 @@ export function NewReadingForm({
         const saveRes = await saveReadingSessionAction({
           readingId,
           title: resolvedTitle,
-          consultantId: consultantId || "",
+          consultantId: resolvedConsultantId,
           deckIds: selectedDeckIds,
           spreadTemplateId: spreadMode === "classic" ? spreadTemplateId : "",
           spreadName:
@@ -1190,7 +1234,7 @@ export function NewReadingForm({
           sessionContext: sessionContext.trim(),
           status: "completed",
           performedAt: toIsoUtcString(performedAt),
-          generalObservations: generalObservations.trim(),
+          generalObservations: "",
           sessionSynthesis: sessionSynthesis.trim(),
           closingReflections: "",
           tags: readingTags,
@@ -1704,16 +1748,31 @@ export function NewReadingForm({
                       </div>
                     </div>
 
-                    <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
-                      {customPositions.map((pos) => (
+                    <div
+                      ref={customPositionsListRef}
+                      className="space-y-2.5 max-h-72 overflow-y-auto pr-1"
+                    >
+                      {customPositions.map((pos) => {
+                        const isRecentlyAdded =
+                          recentlyAddedPosition === pos.positionIndex;
+                        return (
                         <div
                           key={pos.positionIndex}
-                          className="rounded-lg border border-border bg-surface p-3 space-y-2 text-xs"
+                          className={cn(
+                            "rounded-lg border border-border bg-surface p-3 space-y-2 text-xs",
+                            isRecentlyAdded && "t-add-card"
+                          )}
                         >
                           <div className="flex items-center gap-2">
                             <span className="inline-flex size-5 items-center justify-center rounded-full bg-ground border border-border text-[11px] font-medium text-ink shrink-0 num-tabular">
                               {pos.positionIndex}
                             </span>
+                            {isRecentlyAdded ? (
+                              <span
+                                className="t-add-dot size-1.5 shrink-0 rounded-full bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.75)]"
+                                aria-hidden="true"
+                              />
+                            ) : null}
                             <Input
                               value={pos.title}
                               onChange={(e) =>
@@ -1750,7 +1809,8 @@ export function NewReadingForm({
                             className="h-8 text-xs text-muted placeholder:text-muted/60"
                           />
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -2382,50 +2442,27 @@ export function NewReadingForm({
               />
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <Label htmlFor="step3-observations">
-                    Observaciones generales
-                  </Label>
-                  <VoiceMicButton
-                    fieldLabel="observaciones generales"
-                    onTranscript={(chunk) =>
-                      setGeneralObservations((current) =>
-                        appendVoiceTranscript(current, chunk)
-                      )
-                    }
-                  />
-                </div>
-                <Textarea
-                  id="step3-observations"
-                  rows={3}
-                  value={generalObservations}
-                  onChange={(e) => setGeneralObservations(e.target.value)}
-                  placeholder="Atmósfera de la lectura, sincronicidades, comentarios del consultante…"
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="step3-synthesis">
+                  Significado y observaciones
+                </Label>
+                <VoiceMicButton
+                  fieldLabel="significado y observaciones"
+                  onTranscript={(chunk) =>
+                    setSessionSynthesis((current) =>
+                      appendVoiceTranscript(current, chunk)
+                    )
+                  }
                 />
               </div>
-
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <Label htmlFor="step3-synthesis">Síntesis o conclusión</Label>
-                  <VoiceMicButton
-                    fieldLabel="síntesis o conclusión"
-                    onTranscript={(chunk) =>
-                      setSessionSynthesis((current) =>
-                        appendVoiceTranscript(current, chunk)
-                      )
-                    }
-                  />
-                </div>
-                <Textarea
-                  id="step3-synthesis"
-                  rows={3}
-                  value={sessionSynthesis}
-                  onChange={(e) => setSessionSynthesis(e.target.value)}
-                  placeholder="Mensaje central de la tirada, consejo final o plan de acción…"
-                />
-              </div>
+              <Textarea
+                id="step3-synthesis"
+                rows={4}
+                value={sessionSynthesis}
+                onChange={(e) => setSessionSynthesis(e.target.value)}
+                placeholder="Significado central de la tirada, atmósfera, sincronicidades, consejo final o plan de acción…"
+              />
             </div>
 
             <div className="space-y-1.5 pb-3">
@@ -2434,7 +2471,7 @@ export function NewReadingForm({
                 value={readingTags}
                 onChange={setReadingTags}
                 suggestions={tagSuggestions}
-                placeholder="Escribe una etiqueta y pulsa Enter (ej. trabajo, vínculos, consejo)…"
+                placeholder="Escribe etiquetas separadas por comas (ej. ex, chongo, amor)…"
               />
             </div>
           </div>

@@ -328,7 +328,7 @@ test.describe("Auditoría de reglas del sistema operativo @device", () => {
 
     // Los controles fuera del lienzo conservan `touch-action: manipulation`.
     const manipulation = await page
-      .getByRole("button", { name: /Achicar panel de cartas/i })
+      .getByRole("button", { name: /Achicar cartas/i })
       .evaluate((el) => getComputedStyle(el).touchAction);
     expect(manipulation).toBe("manipulation");
   });
@@ -349,7 +349,7 @@ test.describe("Auditoría de reglas del sistema operativo @device", () => {
 
     await goToStepThree(page);
 
-    const textarea = page.getByLabel(/Síntesis o conclusión/i);
+    const textarea = page.getByLabel(/Significado y observaciones/i);
     await textarea.scrollIntoViewIfNeeded();
     await textarea.focus();
 

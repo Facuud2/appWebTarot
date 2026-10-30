@@ -71,7 +71,7 @@ test.describe("Lecturas", () => {
       .getByLabel(/Título de la lectura/i)
       .fill("Lectura E2E de claridad");
     await page
-      .getByLabel(/Síntesis o conclusión/i)
+      .getByLabel(/Significado y observaciones/i)
       .fill("La lectura confirma un cambio de ciclo y pide sostener el rumbo.");
     await page.waitForTimeout(400);
 
@@ -99,6 +99,75 @@ test.describe("Lecturas", () => {
     await expect(
       page.getByText(/Lectura E2E de claridad/i).first()
     ).toBeVisible();
+  });
+
+  test("guarda una lectura con un consultante recién registrado", async ({
+    page,
+    account,
+  }) => {
+    void account;
+
+    await page.goto("/lecturas/nueva");
+    await expect(
+      page.getByRole("heading", { name: /Paso 1: Configuración y Estructura/i })
+    ).toBeVisible();
+    await page.getByRole("button", { name: /Nuevo consultante/i }).click();
+    await page
+      .getByLabel(/Nombre o alias del nuevo consultante/i)
+      .fill("Camila E2E");
+    await page.getByRole("button", { name: "Añadir", exact: true }).click();
+    await page
+      .getByLabel(/Pregunta o tema de la consulta/i)
+      .fill("¿Qué ciclo se abre con el nuevo consultante?");
+    await page.waitForTimeout(500);
+
+    await clickFooterAction(
+      page,
+      page.getByRole("button", {
+        name: /Siguiente: (Indicar cartas|Cartas)/i,
+      })
+    );
+    await expect(
+      page.getByRole("heading", { name: /Paso 2: Selección de Cartas/i })
+    ).toBeVisible();
+    await pickFirstCard(page);
+
+    await clickFooterAction(
+      page,
+      page.getByRole("button", {
+        name: /Siguiente: (Acomodar cartas|Tapete)/i,
+      })
+    );
+    await expect(
+      page.getByRole("heading", { name: /Paso 3: Acomodar Mesa/i })
+    ).toBeVisible();
+
+    await page
+      .getByLabel(/Título de la lectura/i)
+      .fill("Lectura E2E con consultante nuevo");
+    await page
+      .getByLabel(/Significado y observaciones/i)
+      .fill("La lectura abre un ciclo y confirma el acompañamiento.");
+    await page.waitForTimeout(400);
+
+    await clickFooterAction(
+      page,
+      page
+        .getByRole("button", {
+          name: /Completar y guardar lectura|Finalizar lectura/i,
+        })
+        .last()
+    );
+
+    // Antes fallaba con un error de FK porque el formulario enviaba `__new__`.
+    await expect(page).toHaveURL(/\/lecturas\/read-/);
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: /Lectura E2E con consultante nuevo/i,
+      })
+    ).toBeVisible();
+    await expect(page.getByText(/Camila E2E/).first()).toBeVisible();
   });
 
   test("guarda un borrador sin completar la lectura", async ({
